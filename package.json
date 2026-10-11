@@ -7,7 +7,7 @@
     "node": "^24.0.0"
   },
   "scripts": {
-    "typecheck": "pnpm -r typecheck",
+    "typecheck": "tsc -p tsconfig.json && pnpm -r typecheck",
     "lint": "biome check .",
     "format": "biome check --write .",
     "test": "vitest run"

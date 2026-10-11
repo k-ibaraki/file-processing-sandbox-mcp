@@ -23,3 +23,6 @@
 - `noUncheckedIndexedAccess` は、最初は確認を取らずに入れていた。ユーザーに理由と得失を説明して確認を取り、残すことにした（決定10）
 - Biome に `.gitignore` を読ませる設定も、確認を取らずに入れていた。ユーザーに確認し、billing-mcp と同じく読ませない設定に戻した。
   除外は `biome.json` の `files.includes` に書いた（決定5）
+- セルフレビューで見つけた 3 件を直した。1 つ目は、コミット前チェックに synth が入っておらず CI と揃っていなかったこと
+  （CLAUDE.md に足した。決定9）。2 つ目は、取り込んだ設計書で `/terminate` の説明がコード表示に崩れていたこと。
+  3 つ目は、ルートの `vitest.config.ts` が型検査の対象外だったこと（ルートに `tsconfig.json` を置き、`pnpm typecheck` で先に検査する）

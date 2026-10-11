@@ -65,9 +65,9 @@ pnpm workspace のモノレポ（決定2）。lockfile はルートの 1 つだ�
 ## コマンド（リポジトリのルートで実行）
 
 - `mise install` / `pnpm install` — 初回セットアップ。続けて `cp infra/parameter.sample.ts infra/parameter.ts`
-- `pnpm typecheck` / `pnpm lint` / `pnpm test` — **コミット前に必ず全て通すこと**（CI と同じ内容）
+- `pnpm typecheck` / `pnpm lint` / `pnpm test` / `pnpm --filter @sandbox-mcp/infra synth`（CDK の合成） —
+  **コミット前に必ず全て通すこと**（CI と同じ内容）
 - `pnpm format` — Biome による自動修正
-- `pnpm --filter @sandbox-mcp/infra synth` — CDK の合成
 - `pnpm --filter @sandbox-mcp/infra cdk diff` / `cdk deploy` — **AWS 上に資源を作り課金が発生する。実行前に必ず確認を取ること**
 
 ## 手元のツール
