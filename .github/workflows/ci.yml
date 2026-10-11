@@ -1,0 +1,29 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    name: typecheck / lint / test / synth
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: jdx/mise-action@v5
+      - name: 依存関係のインストール
+        run: pnpm install --frozen-lockfile
+      - name: パラメータファイルの用意（parameter.ts は gitignore のためサンプルから生成）
+        run: cp infra/parameter.sample.ts infra/parameter.ts
+      - name: 型チェック
+        run: pnpm typecheck
+      - name: Lint・フォーマット確認
+        run: pnpm lint
+      - name: テスト
+        run: pnpm test
+      - name: synth 確認
+        run: pnpm --filter @sandbox-mcp/infra synth

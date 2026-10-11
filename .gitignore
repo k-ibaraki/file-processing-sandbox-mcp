@@ -1,0 +1,18 @@
+# 依存・ビルド成果物
+node_modules/
+dist/
+cdk.out/
+coverage/
+
+# 環境変数・シークレット
+.env
+.env.*
+!.env.sample
+
+# CDK パラメータ（parameter.sample.ts をコミットする）
+infra/parameter.ts
+
+# その他
+*.log
+.DS_Store
+.claude/settings.local.json
