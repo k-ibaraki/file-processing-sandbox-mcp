@@ -169,7 +169,8 @@ export function createPrototypeStack(
       microvmImageHooks: { ready: "ENABLED", readyTimeoutInSeconds: 300 },
     },
     environmentVariables: [
-      { key: "AWS_REGION", value: region },
+      // AWS_REGION はイメージの環境変数として予約されていて渡せないため、別名で渡す
+      { key: "WORKER_REGION", value: region },
       { key: "JOBS_TABLE_NAME", value: table.tableName },
       { key: "JOBS_BUCKET_NAME", value: bucket.bucketName },
       { key: "BEDROCK_ROLE_ARN", value: bedrockRole.roleArn },

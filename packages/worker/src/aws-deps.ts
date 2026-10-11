@@ -43,7 +43,7 @@ function readEnv(env: NodeJS.ProcessEnv, name: string): string {
 
 export function readConfig(env: NodeJS.ProcessEnv): WorkerConfig {
   return {
-    region: readEnv(env, "AWS_REGION"),
+    region: readEnv(env, "WORKER_REGION"),
     tableName: readEnv(env, "JOBS_TABLE_NAME"),
     bucketName: readEnv(env, "JOBS_BUCKET_NAME"),
     bedrockRoleArn: readEnv(env, "BEDROCK_ROLE_ARN"),
@@ -178,6 +178,6 @@ export function createDeps(config: WorkerConfig): JobDeps {
       );
     },
 
-    probe: collectProbe,
+    probe: () => collectProbe(config.region),
   };
 }

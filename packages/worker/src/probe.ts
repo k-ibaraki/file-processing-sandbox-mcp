@@ -68,9 +68,9 @@ async function imds() {
   }
 }
 
-async function callerIdentity() {
+async function callerIdentity(region: string) {
   try {
-    const { Arn } = await new STSClient({}).send(
+    const { Arn } = await new STSClient({ region }).send(
       new GetCallerIdentityCommand({}),
     );
     return { arn: Arn?.replace(/\d{12}/g, "XXXXXXXXXXXX") };
@@ -79,7 +79,9 @@ async function callerIdentity() {
   }
 }
 
-export async function collectProbe(): Promise<Record<string, unknown>> {
+export async function collectProbe(
+  region: string,
+): Promise<Record<string, unknown>> {
   const status = readText("/proc/self/status") ?? "";
   return {
     os: readText("/etc/os-release")?.match(/PRETTY_NAME="(.*)"/)?.[1],
@@ -99,7 +101,7 @@ export async function collectProbe(): Promise<Record<string, unknown>> {
       "/var/run/secrets",
     ].filter((path) => existsSync(path)),
     imds: await imds(),
-    callerIdentity: await callerIdentity(),
+    callerIdentity: await callerIdentity(region),
     bwrapVersion: await command("bwrap", ["--version"]),
     bwrapTry: await command("bwrap", [
       "--ro-bind",

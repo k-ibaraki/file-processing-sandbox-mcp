@@ -33,12 +33,20 @@ describe("PrototypeStack", () => {
         MicrovmImageHooks: Match.objectLike({ Ready: "ENABLED" }),
       },
       EnvironmentVariables: Match.arrayWith([
-        { Key: "AWS_REGION", Value: "ap-northeast-1" },
+        { Key: "WORKER_REGION", Value: "ap-northeast-1" },
         Match.objectLike({ Key: "JOBS_TABLE_NAME" }),
         Match.objectLike({ Key: "JOBS_BUCKET_NAME" }),
         Match.objectLike({ Key: "BEDROCK_ROLE_ARN" }),
       ]),
     });
+  });
+
+  test("予約された環境変数（AWS_REGION）はイメージに渡さない", () => {
+    const images = synth().findResources("AWS::Lambda::MicrovmImage");
+    const keys = Object.values(images).flatMap((image) =>
+      image.Properties.EnvironmentVariables.map((v: { Key: string }) => v.Key),
+    );
+    expect(keys).not.toContain("AWS_REGION");
   });
 
   test("OS 権限 ALL を付けた版も作れる", () => {
