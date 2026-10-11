@@ -12,6 +12,9 @@ const base = {
   path: "/usr/local/bin:/usr/bin",
   home: "/root",
   weakerNestedSandbox: false,
+  autoAllowBashIfSandboxed: false,
+  debugFile: undefined,
+  denyReadProc: true,
 };
 
 describe("buildAgentOptions", () => {
@@ -62,6 +65,28 @@ describe("buildAgentOptions", () => {
         { name: "AWS_CONTAINER_AUTHORIZATION_TOKEN", mode: "deny" },
       ]),
     );
+  });
+
+  test("試験オプションで autoAllowBashIfSandboxed を明示できる", () => {
+    expect(
+      buildAgentOptions(base).sandbox?.autoAllowBashIfSandboxed,
+    ).toBeUndefined();
+    const options = buildAgentOptions({
+      ...base,
+      autoAllowBashIfSandboxed: true,
+    });
+    expect(options.sandbox?.autoAllowBashIfSandboxed).toBe(true);
+  });
+
+  test("試験オプションで /proc の読み取り禁止を外せる", () => {
+    const options = buildAgentOptions({ ...base, denyReadProc: false });
+    expect(options.sandbox?.filesystem?.denyRead).toEqual([]);
+  });
+
+  test("試験オプションで Claude Code のデバッグログを書き出せる", () => {
+    expect(buildAgentOptions(base).debugFile).toBeUndefined();
+    const options = buildAgentOptions({ ...base, debugFile: "/tmp/d.log" });
+    expect(options.debugFile).toBe("/tmp/d.log");
   });
 
   test("試験オプションで weaker nested sandbox を有効にできる", () => {

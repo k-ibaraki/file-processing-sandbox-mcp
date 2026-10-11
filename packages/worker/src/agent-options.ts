@@ -15,6 +15,12 @@ export interface AgentOptionsInput {
   home: string;
   /** 試作の試験オプション。コンテナ内で bubblewrap が /proc をマウントできないときの回避策 */
   weakerNestedSandbox: boolean;
+  /** 試作の試験オプション。既定値（true）を明示して挙動を比べる */
+  autoAllowBashIfSandboxed: boolean;
+  /** 試作の試験オプション。Claude Code のデバッグログの書き出し先 */
+  debugFile: string | undefined;
+  /** /proc をサンドボックス内のコマンドから読めなくする（構想書どおりなら true） */
+  denyReadProc: boolean;
 }
 
 /** Claude Code の既定の道具のうち、読むことに要らないもの */
@@ -56,6 +62,7 @@ export function buildAgentOptions(input: AgentOptionsInput): Options {
     permissionMode: "dontAsk",
     disallowedTools: DISALLOWED_TOOLS,
     settingSources: [],
+    ...(input.debugFile ? { debugFile: input.debugFile } : {}),
     systemPrompt: systemPrompt(input.workDir),
     // env は親の環境を引き継がず、ここで渡したものだけになる。実行ロールの認証情報は渡さない
     env: {
@@ -73,7 +80,10 @@ export function buildAgentOptions(input: AgentOptionsInput): Options {
       failIfUnavailable: true,
       allowUnsandboxedCommands: false,
       network: { allowedDomains: [] },
-      filesystem: { denyRead: ["/proc"], denyWrite: [input.workDir] },
+      filesystem: {
+        denyRead: input.denyReadProc ? ["/proc"] : [],
+        denyWrite: [input.workDir],
+      },
       credentials: {
         envVars: CREDENTIAL_ENV_VARS.map((name) => ({
           name,
@@ -81,6 +91,9 @@ export function buildAgentOptions(input: AgentOptionsInput): Options {
         })),
       },
       ...(input.weakerNestedSandbox ? { enableWeakerNestedSandbox: true } : {}),
+      ...(input.autoAllowBashIfSandboxed
+        ? { autoAllowBashIfSandboxed: true }
+        : {}),
     },
   };
 }

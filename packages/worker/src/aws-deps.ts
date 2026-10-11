@@ -34,6 +34,8 @@ export interface WorkerConfig {
   credentialExportCommand: string;
   /** awsCredentialExport の呼び出し記録（試作の確認用） */
   exportLogPath: string;
+  /** Claude Code のデバッグログ（試作の確認用） */
+  debugLogPath: string;
 }
 
 function readEnv(env: NodeJS.ProcessEnv, name: string): string {
@@ -52,10 +54,21 @@ export function readConfig(env: NodeJS.ProcessEnv): WorkerConfig {
     maxTurns: 40,
     credentialExportCommand: "node /opt/worker/export-credentials.mjs",
     exportLogPath: "/var/tmp/worker/export-credentials.log",
+    debugLogPath: "/var/tmp/worker/claude-debug.log",
   };
 }
 
 const jobPrefix = (jobId: string) => `jobs/${jobId}/`;
+
+/** デバッグログのうち、サンドボックスと権限の判定に関わる行だけを残す（試作の確認用） */
+async function readDebugLog(path: string): Promise<string[]> {
+  const text = await readFile(path, "utf8").catch(() => "");
+  return text
+    .split("\n")
+    .filter((line) => /sandbox|bwrap|bubblewrap|permission|denied/i.test(line))
+    .slice(-200)
+    .map((line) => line.slice(0, 500));
+}
 
 export function createDeps(config: WorkerConfig): JobDeps {
   const ddb = new DynamoDBClient({ region: config.region });
@@ -142,6 +155,10 @@ export function createDeps(config: WorkerConfig): JobDeps {
         path: process.env.PATH ?? "/usr/local/bin:/usr/bin:/bin",
         home: process.env.HOME ?? "/root",
         weakerNestedSandbox: request.probe.weakerNestedSandbox ?? false,
+        autoAllowBashIfSandboxed:
+          request.probe.autoAllowBashIfSandboxed ?? false,
+        debugFile: request.probe.debug ? config.debugLogPath : undefined,
+        denyReadProc: !request.probe.allowProc,
       });
       const stderr: string[] = [];
       const messages: unknown[] = [];
@@ -169,6 +186,7 @@ export function createDeps(config: WorkerConfig): JobDeps {
         report: {
           ...report,
           credentialExports: exportLog.split("\n").filter(Boolean),
+          debugLog: await readDebugLog(config.debugLogPath),
           stderr: stderr.join("").slice(-4000),
         },
       };

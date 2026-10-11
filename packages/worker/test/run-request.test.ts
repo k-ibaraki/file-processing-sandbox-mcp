@@ -30,6 +30,9 @@ describe("parseRunRequest", () => {
           weakerNestedSandbox: true,
           credentialSeconds: 900,
           skipTerminate: true,
+          debug: true,
+          autoAllowBashIfSandboxed: true,
+          allowProc: true,
         },
       }),
     );
@@ -37,6 +40,9 @@ describe("parseRunRequest", () => {
       weakerNestedSandbox: true,
       credentialSeconds: 900,
       skipTerminate: true,
+      debug: true,
+      autoAllowBashIfSandboxed: true,
+      allowProc: true,
     });
   });
 

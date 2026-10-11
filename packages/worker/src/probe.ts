@@ -114,6 +114,19 @@ export async function collectProbe(
       "--unshare-all",
       "true",
     ]),
+    // enableWeakerNestedSandbox と同じく、/proc を新しくマウントせずに bind する形
+    bwrapWeakerTry: await command("bwrap", [
+      "--ro-bind",
+      "/",
+      "/",
+      "--bind",
+      "/proc",
+      "/proc",
+      "--dev",
+      "/dev",
+      "--unshare-all",
+      "true",
+    ]),
     socat: await command("socat", ["-V"]).then((r) => ({
       ok: r.ok,
       version: r.stdout?.split("\n").find((l) => l.includes("version")),

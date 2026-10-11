@@ -10,6 +10,12 @@ export interface ProbeOptions {
   skipTerminate?: boolean;
   /** ワーカー側で認証情報の在りかなどを観測し、報告に入れる */
   collect?: boolean;
+  /** Claude Code のデバッグログを報告に入れる */
+  debug?: boolean;
+  /** Bash サンドボックスの autoAllowBashIfSandboxed を明示する（既定値は true） */
+  autoAllowBashIfSandboxed?: boolean;
+  /** Bash サンドボックスの denyRead から /proc を外す */
+  allowProc?: boolean;
 }
 
 export interface RunRequest {
@@ -24,6 +30,9 @@ const PROBE_TYPES = {
   credentialSeconds: "number",
   skipTerminate: "boolean",
   collect: "boolean",
+  debug: "boolean",
+  autoAllowBashIfSandboxed: "boolean",
+  allowProc: "boolean",
 } as const;
 
 function isRecord(value: unknown): value is Record<string, unknown> {
