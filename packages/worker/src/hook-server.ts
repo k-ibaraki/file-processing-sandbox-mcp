@@ -30,12 +30,12 @@ export function createHookServer(handlers: HookHandlers): Server {
         try {
           request = parseRunRequest(body);
         } catch (error) {
-          console.error("/run の本文を読めません", error);
+          console.log("/run の本文を読めません", error);
           res.writeHead(400).end();
           return;
         }
         Promise.resolve(handlers.onRun(request)).catch((error) =>
-          console.error("ジョブが異常終了しました", error),
+          console.log("ジョブが異常終了しました", error),
         );
         res.writeHead(200).end();
         return;
@@ -44,7 +44,7 @@ export function createHookServer(handlers: HookHandlers): Server {
         try {
           await handlers.onTerminate();
         } catch (error) {
-          console.error("/terminate の処理に失敗しました", error);
+          console.log("/terminate の処理に失敗しました", error);
         }
         res.writeHead(200).end();
         return;

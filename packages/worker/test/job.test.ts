@@ -68,6 +68,17 @@ describe("runJob", () => {
     expect(d.terminate).toHaveBeenCalledWith("mvm-0001");
   });
 
+  test("失敗したときも、理由と観測結果を報告に残す", async () => {
+    const d = deps({
+      runAgent: vi.fn().mockRejectedValue(new Error("Bedrock に届かない")),
+    });
+    await runJob(d, { ...request, probe: { collect: true } });
+    expect(d.putReport).toHaveBeenCalledWith("01JOB", {
+      error: "Bedrock に届かない",
+      probe: { imds: "reachable" },
+    });
+  });
+
   test("試験オプションがあれば、ワーカー側の観測結果も報告に入れる", async () => {
     const d = deps();
     await runJob(d, { ...request, probe: { collect: true } });

@@ -36,20 +36,27 @@ export async function runJob(
   request: RunRequest,
 ): Promise<void> {
   const { jobId } = request;
+  let probe: Record<string, unknown> | undefined;
   try {
     const instruction = await deps.getInstruction(jobId);
     await deps.setStatus(jobId, "RUNNING");
-    const probe = request.probe.collect ? await deps.probe() : undefined;
+    probe = request.probe.collect ? await deps.probe() : undefined;
     await deps.downloadInputs(jobId);
     const result = await deps.runAgent(instruction, request);
     await deps.putAnswer(jobId, result.answer);
     await deps.putReport(jobId, { agent: result.report, probe });
     await deps.setStatus(jobId, "SUCCEEDED");
   } catch (error) {
-    console.error(`ジョブ ${jobId} が失敗しました`, error);
+    // 試作では MicroVM の標準エラーが CloudWatch Logs に届かなかったため、標準出力に出す
+    console.log(
+      JSON.stringify({ event: "job-failed", jobId, error: String(error) }),
+    );
+    await deps
+      .putReport(jobId, { error: message(error), probe })
+      .catch((e) => console.log(`報告を保存できません: ${e}`));
     await deps
       .setStatus(jobId, "FAILED", message(error))
-      .catch((e) => console.error("FAILED を記録できません", e));
+      .catch((e) => console.log(`FAILED を記録できません: ${e}`));
   }
   if (!request.probe.skipTerminate) {
     await deps.terminate(request.microvmId);

@@ -4,6 +4,7 @@ import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { basename, join } from "node:path";
 import { query } from "@anthropic-ai/claude-agent-sdk";
 import {
+  ConditionalCheckFailedException,
   DynamoDBClient,
   GetItemCommand,
   UpdateItemCommand,
@@ -76,23 +77,37 @@ export function createDeps(config: WorkerConfig): JobDeps {
     },
 
     async setStatus(jobId, status, error) {
-      await ddb.send(
-        new UpdateItemCommand({
-          TableName: config.tableName,
-          Key: { ...key, job_id: { S: jobId } },
-          UpdateExpression: error
-            ? "SET #s = :s, #e = :e, heartbeat_at = :t"
-            : "SET #s = :s, heartbeat_at = :t",
-          ExpressionAttributeNames: error
-            ? { "#s": "status", "#e": "error" }
-            : { "#s": "status" },
-          ExpressionAttributeValues: {
-            ":s": { S: status },
-            ":t": { N: String(Date.now()) },
-            ...(error ? { ":e": { S: error } } : {}),
-          },
-        }),
-      );
+      // 完了・失敗は RUNNING のときだけ書く。終わったジョブや削除されたジョブを上書きしない
+      const onlyIfRunning = status !== "RUNNING";
+      try {
+        await ddb.send(
+          new UpdateItemCommand({
+            TableName: config.tableName,
+            Key: { ...key, job_id: { S: jobId } },
+            UpdateExpression: error
+              ? "SET #s = :s, #e = :e, heartbeat_at = :t"
+              : "SET #s = :s, heartbeat_at = :t",
+            ...(onlyIfRunning ? { ConditionExpression: "#s = :running" } : {}),
+            ExpressionAttributeNames: error
+              ? { "#s": "status", "#e": "error" }
+              : { "#s": "status" },
+            ExpressionAttributeValues: {
+              ":s": { S: status },
+              ":t": { N: String(Date.now()) },
+              ...(error ? { ":e": { S: error } } : {}),
+              ...(onlyIfRunning ? { ":running": { S: "RUNNING" } } : {}),
+            },
+          }),
+        );
+      } catch (e) {
+        if (e instanceof ConditionalCheckFailedException) {
+          console.log(
+            JSON.stringify({ event: "status-skipped", jobId, status }),
+          );
+          return;
+        }
+        throw e;
+      }
     },
 
     async downloadInputs(jobId) {
@@ -130,13 +145,22 @@ export function createDeps(config: WorkerConfig): JobDeps {
       });
       const stderr: string[] = [];
       const messages: unknown[] = [];
-      for await (const message of query({
-        prompt: instruction,
-        options: { ...options, stderr: (data) => stderr.push(data) },
-      })) {
-        messages.push(message);
+      let summary: ReturnType<typeof summarizeRun>;
+      try {
+        for await (const message of query({
+          prompt: instruction,
+          options: { ...options, stderr: (data) => stderr.push(data) },
+        })) {
+          messages.push(message);
+        }
+        summary = summarizeRun(messages);
+      } catch (error) {
+        // 原因を追えるよう、Claude Code の標準エラーの末尾を理由に添える
+        throw new Error(
+          `${error instanceof Error ? error.message : String(error)}\n[stderr] ${stderr.join("").slice(-3000)}`,
+        );
       }
-      const { answer, report } = summarizeRun(messages);
+      const { answer, report } = summary;
       const exportLog = await readFile(config.exportLogPath, "utf8").catch(
         () => "",
       );
