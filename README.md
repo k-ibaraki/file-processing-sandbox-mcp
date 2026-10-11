@@ -26,7 +26,7 @@ cp infra/parameter.sample.ts infra/parameter.ts     # デプロイパラメー�
 ## コマンド（リポジトリのルートで実行）
 
 ```sh
-pnpm typecheck                              # 全パッケージの型チェック
+pnpm typecheck                              # 型チェック（ルートの設定ファイルと全パッケージ）
 pnpm lint                                   # Biome による lint とフォーマット確認
 pnpm format                                 # Biome による自動修正
 pnpm test                                   # Vitest（全パッケージと CDK の Template テスト）
