@@ -21,3 +21,5 @@
   既存リポジトリと同じ pnpm 10 にした（決定3）
 - TypeScript 6 以降は `types` の既定が空になったため、`tsconfig.base.json` で `"types": ["node"]` を明示している
 - `noUncheckedIndexedAccess` は、最初は確認を取らずに入れていた。ユーザーに理由と得失を説明して確認を取り、残すことにした（決定10）
+- Biome に `.gitignore` を読ませる設定も、確認を取らずに入れていた。ユーザーに確認し、billing-mcp と同じく読ませない設定に戻した。
+  除外は `biome.json` の `files.includes` に書いた（決定5）
