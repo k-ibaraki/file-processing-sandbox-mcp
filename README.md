@@ -1,7 +1,8 @@
 # file-processing-sandbox-mcp
 
-Office・PDF・画像の複数ファイルを S3 に集め、Lambda MicroVM の中で動く Claude Code（Amazon Bedrock）に読ませて、
-指示に沿った回答を作らせるリモート MCP サーバー。ジョブごとに使い捨ての MicroVM を起動するので、使わない間の固定費はほぼかからない。
+Office・PDF・画像の複数ファイルを S3 に集め、Lambda MicroVM の中で動く「制限された Claude Code」（Amazon Bedrock）に読ませて、
+指示に沿った回答テキストを返すリモート MCP サーバー。エージェントには読むための道具と Bedrock 専用の認証情報だけを渡す。
+ジョブごとに使い捨ての MicroVM を起動するので、使わない間の固定費はほぼかからない。
 
 > いまはリポジトリの土台（ツールチェーン・CI・空の雛形）だけで、機能はまだ実装していない。
 
@@ -9,10 +10,10 @@ Office・PDF・画像の複数ファイルを S3 に集め、Lambda MicroVM の�
 
 | 場所 | 役割 |
 | --- | --- |
-| `packages/shared` | gateway・dispatcher・worker が共有する型と定数 |
-| `packages/gateway` | 前段 Lambda（MCP ゲートウェイ）。認証・ジョブ管理・署名付き URL の発行 |
-| `packages/dispatcher` | ディスパッチャー Lambda。MicroVM の起動と終了 |
-| `packages/worker` | MicroVM 内のワーカー。Claude Agent SDK でジョブを実行する |
+| `packages/shared` | gateway・cleanup・worker が共有する型と定数 |
+| `packages/gateway` | 前段 Lambda（MCP サーバー）。認証・ジョブ管理・MicroVM の起動・完了の待機 |
+| `packages/cleanup` | 掃除用 Lambda。止まったジョブと残った MicroVM を片付ける |
+| `packages/worker` | MicroVM 内のワーカー。前処理と、Claude Agent SDK による制限付き Claude Code の実行 |
 | `infra` | AWS CDK（TypeScript） |
 
 ## セットアップ

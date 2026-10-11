@@ -13,7 +13,7 @@ export interface SandboxMcpStackProps extends cdk.StackProps {
 }
 
 /**
- * S3・DynamoDB・前段 Lambda・ディスパッチャー Lambda・MicroVM イメージをまとめるスタック。
+ * S3・DynamoDB・前段 Lambda・掃除用 Lambda・MicroVM イメージをまとめるスタック。
  * いまは土台だけで、資源は実装の段階で足す。
  */
 export function createSandboxMcpStack(
