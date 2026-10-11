@@ -20,3 +20,4 @@
   `pnpm-macos-arm64` の名前で探して失敗した。mise 本体の更新は手元の環境を変えるので今回は見送り、
   既存リポジトリと同じ pnpm 10 にした（決定3）
 - TypeScript 6 以降は `types` の既定が空になったため、`tsconfig.base.json` で `"types": ["node"]` を明示している
+- `noUncheckedIndexedAccess` は、最初は確認を取らずに入れていた。ユーザーに理由と得失を説明して確認を取り、残すことにした（決定10）
