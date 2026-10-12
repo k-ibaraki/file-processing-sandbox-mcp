@@ -2,15 +2,15 @@
 
 ## プロジェクト概要
 
-Office・PDF・画像の複数ファイルを S3 に集め、Lambda MicroVM 内の Claude Code（Bedrock）に読ませて回答を作らせる
-リモート MCP サーバー。設計は `docs/DESIGN.md` が正。いまは土台だけで、実装は設計書の「実装ステップ」の順に進める。
+Office・PDF・画像の複数ファイルを S3 に集め、Lambda MicroVM 内で動く「制限された Claude Code」（Bedrock）に読ませて
+回答テキストを返すリモート MCP サーバー。設計は `docs/DESIGN.md` が正。実装は設計書の「実装ステップ」の順に進める。
 
 ## 必ず守ること（作業記録）
 
 - 設計を変えたら `docs/DESIGN.md` の本文を直し、判断の経緯を末尾の設計決定録に番号つきで追記・更新する
   （行は消さず、変更の経緯は理由欄に残す）
 - 作業のたびに `docs/implementation-log.md` へ日付見出しで記録する（やったこと・判断・つまずき）
-- DESIGN.md の「未確認事項」に触れる実装は、先に検証して結果を DESIGN.md に反映してから進める
+- DESIGN.md の「実機で確かめること」に触れる実装は、先に検証して結果を DESIGN.md に反映してから進める
 - 決定番号（決定N）は DESIGN.md・implementation-log・CLAUDE.md・コードのコメントの中でだけ使う。README には書かない
   （読み手は README だけを読むので、理由が要るなら番号ではなく本文に書く）。README を変えたらコミット前に
   `grep -nE '決定[0-9]' README.md` で番号が無いことを確かめる
@@ -35,10 +35,10 @@ pnpm workspace のモノレポ（決定2）。lockfile はルートの 1 つだ�
 
 | 場所 | 役割 |
 | --- | --- |
-| `packages/shared` | gateway・dispatcher・worker が共有する型と定数（ジョブの状態、DynamoDB 項目、S3 のキー） |
-| `packages/gateway` | 前段 Lambda（MCP ゲートウェイ）。認証・ジョブ管理・署名付き URL だけで、重い処理はしない |
-| `packages/dispatcher` | ディスパッチャー Lambda。MicroVM の起動・終了の権限はここだけが持つ |
-| `packages/worker` | MicroVM 内のワーカー。ライフサイクルフックと、Claude Agent SDK によるジョブ実行 |
+| `packages/shared` | gateway・cleanup・worker が共有する型と定数（ジョブの状態、DynamoDB 項目、S3 のキー） |
+| `packages/gateway` | 前段 Lambda（MCP サーバー）。認証・ジョブ管理・MicroVM の起動と停止・完了の待機。重い処理はしない |
+| `packages/cleanup` | 掃除用 Lambda。ハートビートが途絶えたジョブと、残った MicroVM を片付ける |
+| `packages/worker` | MicroVM 内のワーカー。ライフサイクルフック、前処理、制限付き Claude Code の実行、回答の保存と自己終了 |
 | `infra` | CDK |
 
 - TypeScript 7.0。共通設定は `tsconfig.base.json`（`module: preserve` / `noEmit`。決定4）。tsc は型検査だけに使い、
@@ -58,9 +58,9 @@ pnpm workspace のモノレポ（決定2）。lockfile はルートの 1 つだ�
 
 ### セキュリティ設計（変更時も維持する）
 
-- 入力ファイルは信頼できないものとして扱う。MicroVM 内の S3・DynamoDB へのアクセスはワーカー本体だけが行い、
-  Claude は非特権ユーザーで Bedrock 呼び出し用の認証情報だけを持たせる
-- MicroVM の操作権限はディスパッチャー Lambda だけに与える。gateway とワーカーには与えない
+- 入力ファイルは信頼できないものとして扱う。エージェントには「読んで答える」のに必要な能力と認証情報だけを渡す
+  （ツールは Read・Glob・Grep とサンドボックス内の Bash だけ。認証情報は指定モデルの Bedrock 呼び出し専用）
+- S3・DynamoDB の読み書きと MicroVM の終了はワーカー本体のコードだけが行い、実行ロールの認証情報はエージェントに渡さない
 
 ## コマンド（リポジトリのルートで実行）
 

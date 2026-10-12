@@ -1,0 +1,197 @@
+// runJob が使う実際の部品（DynamoDB・S3・MicroVM の終了・Agent SDK）。
+
+import { mkdir, writeFile } from "node:fs/promises";
+import { basename, join } from "node:path";
+import { query } from "@anthropic-ai/claude-agent-sdk";
+import {
+  ConditionalCheckFailedException,
+  DynamoDBClient,
+  GetItemCommand,
+  UpdateItemCommand,
+} from "@aws-sdk/client-dynamodb";
+import {
+  LambdaMicrovmsClient,
+  TerminateMicrovmCommand,
+} from "@aws-sdk/client-lambda-microvms";
+import {
+  GetObjectCommand,
+  PutObjectCommand,
+  paginateListObjectsV2,
+  S3Client,
+} from "@aws-sdk/client-s3";
+import { buildAgentOptions } from "./agent-options";
+import { summarizeRun } from "./agent-run";
+import type { JobDeps } from "./job";
+
+export interface WorkerConfig {
+  region: string;
+  tableName: string;
+  bucketName: string;
+  bedrockRoleArn: string;
+  workDir: string;
+  maxTurns: number;
+  credentialExportCommand: string;
+  /** Bedrock 専用ロールの一時認証情報の有効秒数。ロールの切り替えでは最長 1 時間 */
+  credentialSeconds: number;
+}
+
+function readEnv(env: NodeJS.ProcessEnv, name: string): string {
+  const value = env[name];
+  if (!value) throw new Error(`環境変数 ${name} がありません`);
+  return value;
+}
+
+export function readConfig(env: NodeJS.ProcessEnv): WorkerConfig {
+  return {
+    // AWS_REGION はイメージの環境変数として予約されていて渡せないため、別名で受け取る
+    region: readEnv(env, "WORKER_REGION"),
+    tableName: readEnv(env, "JOBS_TABLE_NAME"),
+    bucketName: readEnv(env, "JOBS_BUCKET_NAME"),
+    bedrockRoleArn: readEnv(env, "BEDROCK_ROLE_ARN"),
+    workDir: "/work",
+    maxTurns: 40,
+    credentialExportCommand: "node /opt/worker/export-credentials.mjs",
+    credentialSeconds: 3600,
+  };
+}
+
+const jobPrefix = (jobId: string) => `jobs/${jobId}/`;
+
+export function createDeps(config: WorkerConfig): JobDeps {
+  const ddb = new DynamoDBClient({ region: config.region });
+  const s3 = new S3Client({ region: config.region });
+  const microvms = new LambdaMicrovmsClient({ region: config.region });
+  const key = { job_id: { S: "" } };
+
+  return {
+    async getJob(jobId) {
+      const { Item } = await ddb.send(
+        new GetItemCommand({
+          TableName: config.tableName,
+          Key: { ...key, job_id: { S: jobId } },
+          ConsistentRead: true,
+        }),
+      );
+      return { status: Item?.status?.S, instruction: Item?.instruction?.S };
+    },
+
+    async setStatus(jobId, status, error) {
+      // RUNNING のときだけ書く。終わったジョブや削除されたジョブを上書きしない
+      try {
+        await ddb.send(
+          new UpdateItemCommand({
+            TableName: config.tableName,
+            Key: { ...key, job_id: { S: jobId } },
+            UpdateExpression: error
+              ? "SET #s = :s, #e = :e, heartbeat_at = :t"
+              : "SET #s = :s, heartbeat_at = :t",
+            ConditionExpression: "#s = :running",
+            ExpressionAttributeNames: error
+              ? { "#s": "status", "#e": "error" }
+              : { "#s": "status" },
+            ExpressionAttributeValues: {
+              ":s": { S: status },
+              ":t": { N: String(Date.now()) },
+              ...(error ? { ":e": { S: error } } : {}),
+              ":running": { S: "RUNNING" },
+            },
+          }),
+        );
+      } catch (e) {
+        if (e instanceof ConditionalCheckFailedException) {
+          console.log(
+            JSON.stringify({ event: "status-skipped", jobId, status }),
+          );
+          return;
+        }
+        throw e;
+      }
+    },
+
+    async downloadInputs(jobId) {
+      const dir = join(config.workDir, "input");
+      await mkdir(dir, { recursive: true });
+      const prefix = `${jobPrefix(jobId)}input/`;
+      // 1 回の一覧は 1,000 件までなので、最後のページまで回す
+      for await (const page of paginateListObjectsV2(
+        { client: s3 },
+        { Bucket: config.bucketName, Prefix: prefix },
+      )) {
+        for (const object of page.Contents ?? []) {
+          if (!object.Key || object.Key.endsWith("/")) continue;
+          const { Body } = await s3.send(
+            new GetObjectCommand({
+              Bucket: config.bucketName,
+              Key: object.Key,
+            }),
+          );
+          if (!Body) continue;
+          await writeFile(
+            join(dir, basename(object.Key)),
+            await Body.transformToByteArray(),
+          );
+        }
+      }
+    },
+
+    async runAgent(instruction, request) {
+      const options = buildAgentOptions({
+        modelId: request.modelId,
+        region: config.region,
+        workDir: config.workDir,
+        maxTurns: config.maxTurns,
+        credentialExportCommand: config.credentialExportCommand,
+        bedrockRoleArn: config.bedrockRoleArn,
+        credentialSeconds: config.credentialSeconds,
+        path: process.env.PATH ?? "/usr/local/bin:/usr/bin:/bin",
+        home: process.env.HOME ?? "/root",
+      });
+      const stderr: string[] = [];
+      const messages: unknown[] = [];
+      let summary: ReturnType<typeof summarizeRun>;
+      try {
+        for await (const message of query({
+          prompt: instruction,
+          options: { ...options, stderr: (data) => stderr.push(data) },
+        })) {
+          messages.push(message);
+        }
+        summary = summarizeRun(messages);
+      } catch (error) {
+        // 原因を追えるよう、Claude Code の標準エラーの末尾を理由に添える
+        throw new Error(
+          `${error instanceof Error ? error.message : String(error)}\n[stderr] ${stderr.join("").slice(-3000)}`,
+        );
+      }
+      return summary;
+    },
+
+    async putAnswer(jobId, answer) {
+      await s3.send(
+        new PutObjectCommand({
+          Bucket: config.bucketName,
+          Key: `${jobPrefix(jobId)}answer.md`,
+          Body: answer,
+          ContentType: "text/markdown; charset=utf-8",
+        }),
+      );
+    },
+
+    async putReport(jobId, report) {
+      await s3.send(
+        new PutObjectCommand({
+          Bucket: config.bucketName,
+          Key: `${jobPrefix(jobId)}logs/report-${Date.now()}.json`,
+          Body: JSON.stringify(report, null, 2),
+          ContentType: "application/json",
+        }),
+      );
+    },
+
+    async terminate(microvmId) {
+      await microvms.send(
+        new TerminateMicrovmCommand({ microvmIdentifier: microvmId }),
+      );
+    },
+  };
+}

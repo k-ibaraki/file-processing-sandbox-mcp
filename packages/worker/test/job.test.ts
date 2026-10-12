@@ -1,0 +1,113 @@
+import { describe, expect, test, vi } from "vitest";
+import { type JobDeps, runJob } from "../src/job";
+import type { RunRequest } from "../src/run-request";
+
+const request: RunRequest = {
+  microvmId: "mvm-0001",
+  jobId: "01JOB",
+  modelId: "jp.anthropic.claude-sonnet-4-6",
+};
+
+function deps(overrides: Partial<JobDeps> = {}): JobDeps & {
+  calls: string[];
+} {
+  const calls: string[] = [];
+  // 呼ばれた順番を calls に残すモック
+  const record = <T>(name: string, value?: T) =>
+    vi.fn(async (...args: unknown[]) => {
+      calls.push(`${name}:${JSON.stringify(args)}`);
+      return value as T;
+    });
+  return {
+    calls,
+    getJob: record("getJob", { status: "RUNNING", instruction: "質問" }),
+    setStatus: record<void>("setStatus"),
+    downloadInputs: record<void>("downloadInputs"),
+    runAgent: record("runAgent", { answer: "回答", report: { numTurns: 2 } }),
+    putAnswer: record<void>("putAnswer"),
+    putReport: record<void>("putReport"),
+    terminate: record<void>("terminate"),
+    ...overrides,
+  };
+}
+
+describe("runJob", () => {
+  test("入力を取得してエージェントを動かし、回答を保存して SUCCEEDED にし、自分を終了する", async () => {
+    const d = deps();
+    await runJob(d, request);
+    expect(d.calls.map((c) => c.split(":")[0])).toEqual([
+      "getJob",
+      "downloadInputs",
+      "runAgent",
+      "putAnswer",
+      "putReport",
+      "setStatus",
+      "terminate",
+    ]);
+    expect(d.runAgent).toHaveBeenCalledWith("質問", request);
+    expect(d.putAnswer).toHaveBeenCalledWith("01JOB", "回答");
+    expect(d.setStatus).toHaveBeenLastCalledWith("01JOB", "SUCCEEDED");
+    expect(d.terminate).toHaveBeenCalledWith("mvm-0001");
+  });
+
+  test("前段 Lambda が RUNNING にしたジョブでなければ、何も書かずに自分を終了する", async () => {
+    // 起動直後に delete_job で DELETED になったジョブを、ワーカーが上書きしないため
+    const d = deps({
+      getJob: vi
+        .fn()
+        .mockResolvedValue({ status: "DELETED", instruction: "質問" }),
+    });
+    await runJob(d, request);
+    expect(d.runAgent).not.toHaveBeenCalled();
+    expect(d.setStatus).not.toHaveBeenCalled();
+    expect(d.putReport).not.toHaveBeenCalled();
+    expect(d.terminate).toHaveBeenCalledWith("mvm-0001");
+  });
+
+  test("指示が無ければ FAILED と理由を記録する", async () => {
+    const d = deps({
+      getJob: vi
+        .fn()
+        .mockResolvedValue({ status: "RUNNING", instruction: undefined }),
+    });
+    await runJob(d, request);
+    expect(d.setStatus).toHaveBeenLastCalledWith(
+      "01JOB",
+      "FAILED",
+      expect.stringContaining("指示"),
+    );
+    expect(d.terminate).toHaveBeenCalledWith("mvm-0001");
+  });
+
+  test("エージェントが失敗したら FAILED と理由を記録し、それでも自分を終了する", async () => {
+    const d = deps({
+      runAgent: vi.fn().mockRejectedValue(new Error("Bedrock に届かない")),
+    });
+    await runJob(d, request);
+    expect(d.setStatus).toHaveBeenLastCalledWith(
+      "01JOB",
+      "FAILED",
+      "Bedrock に届かない",
+    );
+    expect(d.putAnswer).not.toHaveBeenCalled();
+    expect(d.terminate).toHaveBeenCalledWith("mvm-0001");
+  });
+
+  test("失敗したときも、理由を報告に残す", async () => {
+    const d = deps({
+      runAgent: vi.fn().mockRejectedValue(new Error("Bedrock に届かない")),
+    });
+    await runJob(d, request);
+    expect(d.putReport).toHaveBeenCalledWith("01JOB", {
+      error: "Bedrock に届かない",
+    });
+  });
+
+  test("成功したときはエージェントの実測の記録を報告に残す", async () => {
+    const d = deps();
+    await runJob(d, request);
+    expect(d.putReport).toHaveBeenCalledWith("01JOB", {
+      agent: { numTurns: 2 },
+    });
+  });
+});
