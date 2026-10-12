@@ -15,8 +15,8 @@ import {
 } from "@aws-sdk/client-lambda-microvms";
 import {
   GetObjectCommand,
-  ListObjectsV2Command,
   PutObjectCommand,
+  paginateListObjectsV2,
   S3Client,
 } from "@aws-sdk/client-s3";
 import { buildAgentOptions } from "./agent-options";
@@ -64,21 +64,19 @@ export function createDeps(config: WorkerConfig): JobDeps {
   const key = { job_id: { S: "" } };
 
   return {
-    async getInstruction(jobId) {
+    async getJob(jobId) {
       const { Item } = await ddb.send(
         new GetItemCommand({
           TableName: config.tableName,
           Key: { ...key, job_id: { S: jobId } },
+          ConsistentRead: true,
         }),
       );
-      const instruction = Item?.instruction?.S;
-      if (!instruction) throw new Error(`ジョブ ${jobId} に指示がありません`);
-      return instruction;
+      return { status: Item?.status?.S, instruction: Item?.instruction?.S };
     },
 
     async setStatus(jobId, status, error) {
-      // 完了・失敗は RUNNING のときだけ書く。終わったジョブや削除されたジョブを上書きしない
-      const onlyIfRunning = status !== "RUNNING";
+      // RUNNING のときだけ書く。終わったジョブや削除されたジョブを上書きしない
       try {
         await ddb.send(
           new UpdateItemCommand({
@@ -87,7 +85,7 @@ export function createDeps(config: WorkerConfig): JobDeps {
             UpdateExpression: error
               ? "SET #s = :s, #e = :e, heartbeat_at = :t"
               : "SET #s = :s, heartbeat_at = :t",
-            ...(onlyIfRunning ? { ConditionExpression: "#s = :running" } : {}),
+            ConditionExpression: "#s = :running",
             ExpressionAttributeNames: error
               ? { "#s": "status", "#e": "error" }
               : { "#s": "status" },
@@ -95,7 +93,7 @@ export function createDeps(config: WorkerConfig): JobDeps {
               ":s": { S: status },
               ":t": { N: String(Date.now()) },
               ...(error ? { ":e": { S: error } } : {}),
-              ...(onlyIfRunning ? { ":running": { S: "RUNNING" } } : {}),
+              ":running": { S: "RUNNING" },
             },
           }),
         );
@@ -114,19 +112,25 @@ export function createDeps(config: WorkerConfig): JobDeps {
       const dir = join(config.workDir, "input");
       await mkdir(dir, { recursive: true });
       const prefix = `${jobPrefix(jobId)}input/`;
-      const { Contents = [] } = await s3.send(
-        new ListObjectsV2Command({ Bucket: config.bucketName, Prefix: prefix }),
-      );
-      for (const object of Contents) {
-        if (!object.Key || object.Key.endsWith("/")) continue;
-        const { Body } = await s3.send(
-          new GetObjectCommand({ Bucket: config.bucketName, Key: object.Key }),
-        );
-        if (!Body) continue;
-        await writeFile(
-          join(dir, basename(object.Key)),
-          await Body.transformToByteArray(),
-        );
+      // 1 回の一覧は 1,000 件までなので、最後のページまで回す
+      for await (const page of paginateListObjectsV2(
+        { client: s3 },
+        { Bucket: config.bucketName, Prefix: prefix },
+      )) {
+        for (const object of page.Contents ?? []) {
+          if (!object.Key || object.Key.endsWith("/")) continue;
+          const { Body } = await s3.send(
+            new GetObjectCommand({
+              Bucket: config.bucketName,
+              Key: object.Key,
+            }),
+          );
+          if (!Body) continue;
+          await writeFile(
+            join(dir, basename(object.Key)),
+            await Body.transformToByteArray(),
+          );
+        }
       }
     },
 

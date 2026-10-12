@@ -20,7 +20,7 @@ function deps(overrides: Partial<JobDeps> = {}): JobDeps & {
     });
   return {
     calls,
-    getInstruction: record("getInstruction", "質問"),
+    getJob: record("getJob", { status: "RUNNING", instruction: "質問" }),
     setStatus: record<void>("setStatus"),
     downloadInputs: record<void>("downloadInputs"),
     runAgent: record("runAgent", { answer: "回答", report: { numTurns: 2 } }),
@@ -36,8 +36,7 @@ describe("runJob", () => {
     const d = deps();
     await runJob(d, request);
     expect(d.calls.map((c) => c.split(":")[0])).toEqual([
-      "getInstruction",
-      "setStatus",
+      "getJob",
       "downloadInputs",
       "runAgent",
       "putAnswer",
@@ -45,10 +44,38 @@ describe("runJob", () => {
       "setStatus",
       "terminate",
     ]);
-    expect(d.setStatus).toHaveBeenNthCalledWith(1, "01JOB", "RUNNING");
     expect(d.runAgent).toHaveBeenCalledWith("質問", request);
     expect(d.putAnswer).toHaveBeenCalledWith("01JOB", "回答");
     expect(d.setStatus).toHaveBeenLastCalledWith("01JOB", "SUCCEEDED");
+    expect(d.terminate).toHaveBeenCalledWith("mvm-0001");
+  });
+
+  test("前段 Lambda が RUNNING にしたジョブでなければ、何も書かずに自分を終了する", async () => {
+    // 起動直後に delete_job で DELETED になったジョブを、ワーカーが上書きしないため
+    const d = deps({
+      getJob: vi
+        .fn()
+        .mockResolvedValue({ status: "DELETED", instruction: "質問" }),
+    });
+    await runJob(d, request);
+    expect(d.runAgent).not.toHaveBeenCalled();
+    expect(d.setStatus).not.toHaveBeenCalled();
+    expect(d.putReport).not.toHaveBeenCalled();
+    expect(d.terminate).toHaveBeenCalledWith("mvm-0001");
+  });
+
+  test("指示が無ければ FAILED と理由を記録する", async () => {
+    const d = deps({
+      getJob: vi
+        .fn()
+        .mockResolvedValue({ status: "RUNNING", instruction: undefined }),
+    });
+    await runJob(d, request);
+    expect(d.setStatus).toHaveBeenLastCalledWith(
+      "01JOB",
+      "FAILED",
+      expect.stringContaining("指示"),
+    );
     expect(d.terminate).toHaveBeenCalledWith("mvm-0001");
   });
 

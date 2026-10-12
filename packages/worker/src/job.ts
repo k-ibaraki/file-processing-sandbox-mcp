@@ -3,7 +3,13 @@
 
 import type { RunRequest } from "./run-request";
 
-export type JobStatus = "RUNNING" | "SUCCEEDED" | "FAILED";
+/** ワーカーが書く状態。RUNNING にするのは前段 Lambda（run_job）の役割 */
+export type FinishedStatus = "SUCCEEDED" | "FAILED";
+
+export interface JobRecord {
+  status: string | undefined;
+  instruction: string | undefined;
+}
 
 export interface AgentResult {
   answer: string;
@@ -12,10 +18,10 @@ export interface AgentResult {
 }
 
 export interface JobDeps {
-  getInstruction: (jobId: string) => Promise<string>;
+  getJob: (jobId: string) => Promise<JobRecord>;
   setStatus: (
     jobId: string,
-    status: JobStatus,
+    status: FinishedStatus,
     error?: string,
   ) => Promise<void>;
   downloadInputs: (jobId: string) => Promise<void>;
@@ -29,19 +35,35 @@ function message(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
+async function processJob(
+  deps: JobDeps,
+  request: RunRequest,
+  instruction: string | undefined,
+): Promise<void> {
+  const { jobId } = request;
+  if (!instruction) throw new Error(`ジョブ ${jobId} に指示がありません`);
+  await deps.downloadInputs(jobId);
+  const result = await deps.runAgent(instruction, request);
+  await deps.putAnswer(jobId, result.answer);
+  await deps.putReport(jobId, { agent: result.report });
+  await deps.setStatus(jobId, "SUCCEEDED");
+}
+
 export async function runJob(
   deps: JobDeps,
   request: RunRequest,
 ): Promise<void> {
   const { jobId } = request;
   try {
-    const instruction = await deps.getInstruction(jobId);
-    await deps.setStatus(jobId, "RUNNING");
-    await deps.downloadInputs(jobId);
-    const result = await deps.runAgent(instruction, request);
-    await deps.putAnswer(jobId, result.answer);
-    await deps.putReport(jobId, { agent: result.report });
-    await deps.setStatus(jobId, "SUCCEEDED");
+    const job = await deps.getJob(jobId);
+    if (job.status === "RUNNING") {
+      await processJob(deps, request, job.instruction);
+    } else {
+      // 起動直後に削除されたジョブなど。状態は書き換えずに終了する
+      console.log(
+        JSON.stringify({ event: "job-skipped", jobId, status: job.status }),
+      );
+    }
   } catch (error) {
     // MicroVM の標準エラーは CloudWatch Logs に届かなかったため、標準出力に出す
     console.log(
