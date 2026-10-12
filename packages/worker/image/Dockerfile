@@ -1,5 +1,5 @@
 # MicroVM イメージ。Lambda が MicroVM の基盤イメージ（AL2023）の上でこの Dockerfile を実行し、起動済みの状態をスナップショットにする。
-# 試作（実装ステップ 1）の版で、前処理用の道具（LibreOffice など）はまだ入れていない。
+# 前処理用の道具（LibreOffice など）とエージェントが使う Python は、実装ステップ 2 で足す。
 
 FROM public.ecr.aws/lambda/microvms:al2023-minimal
 
@@ -15,7 +15,7 @@ COPY package.json ./
 RUN npm install --omit=dev --no-audit --no-fund
 
 COPY index.mjs export-credentials.mjs ./
-RUN mkdir -p /work/input /var/tmp/worker
+RUN mkdir -p /work/input
 
 EXPOSE 9000
 CMD ["node", "/opt/worker/index.mjs"]

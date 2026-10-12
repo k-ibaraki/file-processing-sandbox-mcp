@@ -17,32 +17,6 @@ describe("parseRunRequest", () => {
       microvmId: "mvm-0001",
       jobId: "01JOB",
       modelId: "jp.anthropic.claude-sonnet-4-6",
-      probe: {},
-    });
-  });
-
-  test("試作用の試験オプションを受け取る", () => {
-    const request = parseRunRequest(
-      body({
-        jobId: "01JOB",
-        modelId: "m",
-        probe: {
-          weakerNestedSandbox: true,
-          credentialSeconds: 900,
-          skipTerminate: true,
-          debug: true,
-          autoAllowBashIfSandboxed: true,
-          allowProc: true,
-        },
-      }),
-    );
-    expect(request.probe).toEqual({
-      weakerNestedSandbox: true,
-      credentialSeconds: 900,
-      skipTerminate: true,
-      debug: true,
-      autoAllowBashIfSandboxed: true,
-      allowProc: true,
     });
   });
 
@@ -64,13 +38,5 @@ describe("parseRunRequest", () => {
         JSON.stringify({ runHookPayload: '{"jobId":"j","modelId":"m"}' }),
       ),
     ).toThrow(/microvmId/);
-  });
-
-  test("試験オプションの型が違えば拒否する", () => {
-    expect(() =>
-      parseRunRequest(
-        body({ jobId: "j", modelId: "m", probe: { credentialSeconds: "900" } }),
-      ),
-    ).toThrow(/credentialSeconds/);
   });
 });

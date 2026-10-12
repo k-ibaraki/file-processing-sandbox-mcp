@@ -1,6 +1,6 @@
 // runJob が使う実際の部品（DynamoDB・S3・MicroVM の終了・Agent SDK）。
 
-import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { mkdir, writeFile } from "node:fs/promises";
 import { basename, join } from "node:path";
 import { query } from "@anthropic-ai/claude-agent-sdk";
 import {
@@ -22,7 +22,6 @@ import {
 import { buildAgentOptions } from "./agent-options";
 import { summarizeRun } from "./agent-run";
 import type { JobDeps } from "./job";
-import { collectProbe } from "./probe";
 
 export interface WorkerConfig {
   region: string;
@@ -32,10 +31,8 @@ export interface WorkerConfig {
   workDir: string;
   maxTurns: number;
   credentialExportCommand: string;
-  /** awsCredentialExport の呼び出し記録（試作の確認用） */
-  exportLogPath: string;
-  /** Claude Code のデバッグログ（試作の確認用） */
-  debugLogPath: string;
+  /** Bedrock 専用ロールの一時認証情報の有効秒数。ロールの切り替えでは最長 1 時間 */
+  credentialSeconds: number;
 }
 
 function readEnv(env: NodeJS.ProcessEnv, name: string): string {
@@ -46,6 +43,7 @@ function readEnv(env: NodeJS.ProcessEnv, name: string): string {
 
 export function readConfig(env: NodeJS.ProcessEnv): WorkerConfig {
   return {
+    // AWS_REGION はイメージの環境変数として予約されていて渡せないため、別名で受け取る
     region: readEnv(env, "WORKER_REGION"),
     tableName: readEnv(env, "JOBS_TABLE_NAME"),
     bucketName: readEnv(env, "JOBS_BUCKET_NAME"),
@@ -53,22 +51,11 @@ export function readConfig(env: NodeJS.ProcessEnv): WorkerConfig {
     workDir: "/work",
     maxTurns: 40,
     credentialExportCommand: "node /opt/worker/export-credentials.mjs",
-    exportLogPath: "/var/tmp/worker/export-credentials.log",
-    debugLogPath: "/var/tmp/worker/claude-debug.log",
+    credentialSeconds: 3600,
   };
 }
 
 const jobPrefix = (jobId: string) => `jobs/${jobId}/`;
-
-/** デバッグログのうち、サンドボックスと権限の判定に関わる行だけを残す（試作の確認用） */
-async function readDebugLog(path: string): Promise<string[]> {
-  const text = await readFile(path, "utf8").catch(() => "");
-  return text
-    .split("\n")
-    .filter((line) => /sandbox|bwrap|bubblewrap|permission|denied/i.test(line))
-    .slice(-200)
-    .map((line) => line.slice(0, 500));
-}
 
 export function createDeps(config: WorkerConfig): JobDeps {
   const ddb = new DynamoDBClient({ region: config.region });
@@ -151,14 +138,9 @@ export function createDeps(config: WorkerConfig): JobDeps {
         maxTurns: config.maxTurns,
         credentialExportCommand: config.credentialExportCommand,
         bedrockRoleArn: config.bedrockRoleArn,
-        credentialSeconds: request.probe.credentialSeconds ?? 3600,
+        credentialSeconds: config.credentialSeconds,
         path: process.env.PATH ?? "/usr/local/bin:/usr/bin:/bin",
         home: process.env.HOME ?? "/root",
-        weakerNestedSandbox: request.probe.weakerNestedSandbox ?? false,
-        autoAllowBashIfSandboxed:
-          request.probe.autoAllowBashIfSandboxed ?? false,
-        debugFile: request.probe.debug ? config.debugLogPath : undefined,
-        denyReadProc: !request.probe.allowProc,
       });
       const stderr: string[] = [];
       const messages: unknown[] = [];
@@ -177,19 +159,7 @@ export function createDeps(config: WorkerConfig): JobDeps {
           `${error instanceof Error ? error.message : String(error)}\n[stderr] ${stderr.join("").slice(-3000)}`,
         );
       }
-      const { answer, report } = summary;
-      const exportLog = await readFile(config.exportLogPath, "utf8").catch(
-        () => "",
-      );
-      return {
-        answer,
-        report: {
-          ...report,
-          credentialExports: exportLog.split("\n").filter(Boolean),
-          debugLog: await readDebugLog(config.debugLogPath),
-          stderr: stderr.join("").slice(-4000),
-        },
-      };
+      return summary;
     },
 
     async putAnswer(jobId, answer) {
@@ -219,7 +189,5 @@ export function createDeps(config: WorkerConfig): JobDeps {
         new TerminateMicrovmCommand({ microvmIdentifier: microvmId }),
       );
     },
-
-    probe: () => collectProbe(config.region),
   };
 }

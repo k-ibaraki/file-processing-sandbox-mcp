@@ -6,7 +6,6 @@ const request: RunRequest = {
   microvmId: "mvm-0001",
   jobId: "01JOB",
   modelId: "jp.anthropic.claude-sonnet-4-6",
-  probe: {},
 };
 
 function deps(overrides: Partial<JobDeps> = {}): JobDeps & {
@@ -28,7 +27,6 @@ function deps(overrides: Partial<JobDeps> = {}): JobDeps & {
     putAnswer: record<void>("putAnswer"),
     putReport: record<void>("putReport"),
     terminate: record<void>("terminate"),
-    probe: record("probe", { imds: "reachable" } as Record<string, unknown>),
     ...overrides,
   };
 }
@@ -68,33 +66,21 @@ describe("runJob", () => {
     expect(d.terminate).toHaveBeenCalledWith("mvm-0001");
   });
 
-  test("失敗したときも、理由と観測結果を報告に残す", async () => {
+  test("失敗したときも、理由を報告に残す", async () => {
     const d = deps({
       runAgent: vi.fn().mockRejectedValue(new Error("Bedrock に届かない")),
     });
-    await runJob(d, { ...request, probe: { collect: true } });
+    await runJob(d, request);
     expect(d.putReport).toHaveBeenCalledWith("01JOB", {
       error: "Bedrock に届かない",
-      probe: { imds: "reachable" },
     });
   });
 
-  test("試験オプションがあれば、ワーカー側の観測結果も報告に入れる", async () => {
+  test("成功したときはエージェントの実測の記録を報告に残す", async () => {
     const d = deps();
-    await runJob(d, { ...request, probe: { collect: true } });
-    expect(d.probe).toHaveBeenCalledOnce();
-    expect(d.putReport).toHaveBeenCalledWith(
-      "01JOB",
-      expect.objectContaining({
-        probe: { imds: "reachable" },
-        agent: { numTurns: 2 },
-      }),
-    );
-  });
-
-  test("試験オプションで自己終了を止められる", async () => {
-    const d = deps();
-    await runJob(d, { ...request, probe: { skipTerminate: true } });
-    expect(d.terminate).not.toHaveBeenCalled();
+    await runJob(d, request);
+    expect(d.putReport).toHaveBeenCalledWith("01JOB", {
+      agent: { numTurns: 2 },
+    });
   });
 });

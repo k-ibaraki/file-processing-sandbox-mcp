@@ -11,15 +11,13 @@ const base = {
   credentialSeconds: 3600,
   path: "/usr/local/bin:/usr/bin",
   home: "/root",
-  weakerNestedSandbox: false,
-  autoAllowBashIfSandboxed: false,
-  debugFile: undefined,
-  denyReadProc: true,
 };
 
 describe("buildAgentOptions", () => {
-  test("読むための道具以外はツールの定義ごと外す", () => {
+  test("渡す道具は Read・Glob・Grep・Bash だけを列挙し、それ以外は定義ごと出さない", () => {
     const options = buildAgentOptions(base);
+    // disallowedTools だけでは Glob・Grep が無く、想定外の道具が並んだため tools で列挙する（決定14）
+    expect(options.tools).toEqual(["Read", "Glob", "Grep", "Bash"]);
     expect(options.disallowedTools).toEqual([
       "Write",
       "Edit",
@@ -47,9 +45,16 @@ describe("buildAgentOptions", () => {
       failIfUnavailable: true,
       allowUnsandboxedCommands: false,
       network: { allowedDomains: [] },
-      filesystem: { denyRead: ["/proc"], denyWrite: ["/work"] },
+      filesystem: { denyWrite: ["/work"] },
     });
-    expect(sandbox?.enableWeakerNestedSandbox).toBeUndefined();
+  });
+
+  test("MicroVM のコンテナでも bubblewrap が動くよう、/proc を bind する弱いサンドボックスにする", () => {
+    // 既定の権限では新しい /proc をマウントできないため（決定13）
+    const sandbox = buildAgentOptions(base).sandbox;
+    expect(sandbox?.enableWeakerNestedSandbox).toBe(true);
+    // weaker では /proc の読み取り禁止が効かないため、設定しない（決定15）
+    expect(sandbox?.filesystem?.denyRead).toBeUndefined();
   });
 
   test("サンドボックス内のコマンドからは AWS の認証情報の環境変数を消す", () => {
@@ -65,33 +70,6 @@ describe("buildAgentOptions", () => {
         { name: "AWS_CONTAINER_AUTHORIZATION_TOKEN", mode: "deny" },
       ]),
     );
-  });
-
-  test("試験オプションで autoAllowBashIfSandboxed を明示できる", () => {
-    expect(
-      buildAgentOptions(base).sandbox?.autoAllowBashIfSandboxed,
-    ).toBeUndefined();
-    const options = buildAgentOptions({
-      ...base,
-      autoAllowBashIfSandboxed: true,
-    });
-    expect(options.sandbox?.autoAllowBashIfSandboxed).toBe(true);
-  });
-
-  test("試験オプションで /proc の読み取り禁止を外せる", () => {
-    const options = buildAgentOptions({ ...base, denyReadProc: false });
-    expect(options.sandbox?.filesystem?.denyRead).toEqual([]);
-  });
-
-  test("試験オプションで Claude Code のデバッグログを書き出せる", () => {
-    expect(buildAgentOptions(base).debugFile).toBeUndefined();
-    const options = buildAgentOptions({ ...base, debugFile: "/tmp/d.log" });
-    expect(options.debugFile).toBe("/tmp/d.log");
-  });
-
-  test("試験オプションで weaker nested sandbox を有効にできる", () => {
-    const options = buildAgentOptions({ ...base, weakerNestedSandbox: true });
-    expect(options.sandbox?.enableWeakerNestedSandbox).toBe(true);
   });
 
   test("Bedrock へはモデル ID を明示し、認証情報は awsCredentialExport でだけ渡す", () => {
