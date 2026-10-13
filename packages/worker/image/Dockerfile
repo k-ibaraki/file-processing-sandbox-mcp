@@ -26,6 +26,14 @@ RUN cd /tmp \
   && rm -rf /tmp/lo.tar.gz /tmp/LibreOffice_* \
   && ln -s /opt/libreoffice*/program/soffice /usr/local/bin/soffice
 
+# LibreOffice のプロファイルを作っておく。MicroVM では初回の起動に 30 秒以上かかったため（実測）。
+# 場所は前処理のコード（preprocess.ts の LIBREOFFICE_PROFILE_DIR）と揃える
+RUN mkdir -p /tmp/warm && printf 'warm-up\n' > /tmp/warm/warm.txt \
+  && LANG=C.UTF-8 soffice --headless --norestore -env:UserInstallation=file:///opt/libreoffice-profile \
+    --convert-to pdf --outdir /tmp/warm /tmp/warm/warm.txt \
+  && test -f /tmp/warm/warm.pdf \
+  && rm -rf /tmp/warm
+
 # エージェントがサンドボックス内で使う Python の道具。ワーカーがエージェントの PATH の先頭に /opt/py/bin を置く
 RUN python3.12 -m venv /opt/py \
   && /opt/py/bin/pip install --no-cache-dir pandas==3.0.6 openpyxl==3.1.5 duckdb==1.5.6
