@@ -154,3 +154,19 @@
   - jpg と HEIC は縮小でき、EXIF も取り出せた
   - `偽装.png` は `improper image header` で拒否された
   - 名前の重なるものは `a_b-2.txt/`・`index-2.md/` に分かれ、目次は上書きされなかった
+
+### 最終の差分へのセルフレビュー（指摘 0 件）
+
+対象は `origin/main...d23156d`。観点ごとに確かめたことと結果を残す。
+
+- コード品質：追加した行に、デバッグの残り・コメントアウトしたコード・TODO は 0 件（`git diff` を grep）。50 行を超える関数は 5 つで、
+  直さない。`createJobTable`・`createJobStorage`・`createDeps` は小さなメソッドを返す入れ物、`createWorker` は資源の定義を並べたもの
+  （試作スタックと同じ書き方）、`processFile` は大半が形式ごとの振り分け。新しい守り 15 か所は、1 か所ずつ壊すとどれもテストが落ちた
+- テスト：114 件が通った。新しいファイル（`job-table`・`job-storage`・`run-command`・`progress`・`ooxml`・`preprocess`）にはどれもテストがある
+- セキュリティ：追加した行に、12 桁のアカウント ID・メールアドレス・アクセスキー・実在の ARN は無い（テスト用の `000000000000` を除く）。
+  中身が SVG の偽装ファイルは、本物の ImageMagick で拒否された。前処理の外部ツールの隔離は、決定27 の期限までに決める
+- ドキュメント：コード中の決定番号はすべて DESIGN.md にある。覆した設計（libvips・exiftool、`/work/input`）は本文と決定録の両方に書いた。
+  このログの数字（14 か所と 15 か所、13 件）は実行の出力と一致した
+- 規約：jest・`parameter.ts`・v1 の MCP SDK は差分に無い。README に決定番号は無い。依存の差分は `fflate` と `fast-xml-parser` の
+  2 つだけで、lockfile もそれとその依存だけ。lint・typecheck・synth が通った
+- self-review スキルの改善案（自律実行の巡でも 5 観点の記録を残す）はユーザーに提示し、反映しないと決まった。スキルは変えていない
