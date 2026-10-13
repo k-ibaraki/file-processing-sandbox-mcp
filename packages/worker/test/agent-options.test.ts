@@ -95,4 +95,11 @@ describe("buildAgentOptions", () => {
     expect(prompt).toContain("/work");
     expect(prompt).toContain("データ");
   });
+
+  test("システムプロンプトは前処理の結果の目次から読ませ、画像はテキストで足りないときだけ見させる", () => {
+    const prompt = String(buildAgentOptions(base).systemPrompt);
+    expect(prompt).toContain("/work/extracted/index.md");
+    expect(prompt).toContain("テキストで足りない");
+    expect(prompt).toContain("DuckDB");
+  });
 });
