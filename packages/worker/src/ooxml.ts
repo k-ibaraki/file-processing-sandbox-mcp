@@ -1,5 +1,6 @@
 // Office Open XML（docx・pptx・xlsx）を zip と XML のまま読み、テキストを取り出す。
-// LibreOffice 経由の PDF からでは落ちる、コメント・変更履歴の挿入と削除の区別・スライドのノートを残すため（決定19）。
+// LibreOffice で PDF にしてから取り出すと、コメント・変更履歴（挿入と削除の区別）・スライドのノートが失われる。
+// それらを残すために、PDF を経由せず直接読む（決定19）。
 
 import { XMLParser } from "fast-xml-parser";
 import { unzipSync } from "fflate";
