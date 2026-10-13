@@ -116,6 +116,18 @@ describe("extractDocx", () => {
     expect(text).toBe("A\tB\nC\n");
   });
 
+  test("展開すると大きすぎる部品は、展開する前に拒否する", () => {
+    const data = docx(`<w:p>${run("x")}</w:p>`);
+    // zip の中央ディレクトリにある「展開後のサイズ」を 512MB に書き換え、圧縮率の高い細工されたファイルを模す
+    const view = new DataView(data.buffer, data.byteOffset, data.byteLength);
+    for (let i = 0; i + 4 <= data.length; i++) {
+      if (view.getUint32(i, true) === 0x02014b50) {
+        view.setUint32(i + 24, 512 * 1024 * 1024, true);
+      }
+    }
+    expect(() => extractDocx(data)).toThrow("大きすぎます");
+  });
+
   test("本文が無いファイルは拒否する", () => {
     expect(() => extractDocx(zip({ "x.xml": "<x/>" }))).toThrow(
       "word/document.xml",

@@ -174,6 +174,26 @@ describe("runJob", () => {
     expect(d.terminate).toHaveBeenCalledWith("mvm-0001");
   });
 
+  test("失敗の進捗は 1 行目だけを短く載せ、標準エラーの全文は載せない", async () => {
+    const d = deps({
+      runAgent: vi
+        .fn()
+        .mockRejectedValue(
+          new Error(`エージェントが失敗しました\n[stderr] ${"x".repeat(3000)}`),
+        ),
+    });
+    await runJob(d, request);
+    expect(messages(d.heartbeats.at(-1)).at(-1)).toBe(
+      "失敗しました: エージェントが失敗しました",
+    );
+    // 理由の全文は error と報告に残す
+    expect(d.setStatus).toHaveBeenLastCalledWith(
+      "01JOB",
+      "FAILED",
+      expect.stringContaining("[stderr]"),
+    );
+  });
+
   test("失敗したときも、理由を報告に残す", async () => {
     const d = deps({
       runAgent: vi.fn().mockRejectedValue(new Error("Bedrock に届かない")),

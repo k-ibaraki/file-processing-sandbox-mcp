@@ -137,7 +137,10 @@ export async function runJob(
     console.log(
       JSON.stringify({ event: "job-failed", jobId, error: String(error) }),
     );
-    reporter?.add(`失敗しました: ${message(error)}`);
+    // 進捗は呼び出し側に通知として流れるので、理由の 1 行目だけを載せる。全文は error と報告に残す
+    reporter?.add(
+      `失敗しました: ${message(error).split("\n")[0]?.slice(0, 200)}`,
+    );
     await reporter?.stop();
     await deps
       .putReport(jobId, { ...report, error: message(error) })
