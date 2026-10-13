@@ -102,4 +102,11 @@ describe("buildAgentOptions", () => {
     expect(prompt).toContain("テキストで足りない");
     expect(prompt).toContain("DuckDB");
   });
+
+  test("Bash の書き方は実測で通った形を示し、拒否される形（ファイルへの書き出し）を避けさせる", () => {
+    const prompt = String(buildAgentOptions(base).systemPrompt);
+    // 実測（B1・M2）で、標準入力から渡す形は通り、cat > ファイル の形は拒否された
+    expect(prompt).toContain("python3 - <<'EOF'");
+    expect(prompt).toContain("ファイルへの書き出し");
+  });
 });
