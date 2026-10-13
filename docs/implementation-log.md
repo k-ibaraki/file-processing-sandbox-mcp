@@ -92,3 +92,37 @@
 - 取り込み元の構想書の冒頭にあった作成者名は、公開リポジトリなので取り込まなかった
 - 旧版の検討で調べた MicroVM の仕様のうち、新しい構想でも使うもの（認証情報は IMDSv2 で渡る、アイドル判定はエンドポイントを
   通る通信で測る、`--run-hook-payload` は CLI の制約では 4096 文字）は、ステップ 1 の実機確認で裏を取ってから本文に反映した
+
+## 2026-10-13 ステップ 2（ワーカー）
+
+### やったこと
+
+- 着手の前にステップ 2 の範囲と前処理の道具をユーザーと詰めた（決定18〜24）。URL の取り込みはステップ 3 に回し、
+  実測は本番のスタックを先に育てて行う
+- `packages/shared` にジョブ項目・進捗イベント・S3 のキーの型と定数を置いた
+- 前処理を書いた。docx・pptx は OOXML を TypeScript で直接読み（`ooxml.ts`）、xlsx の CSV と PDF 化は LibreOffice、
+  PDF のテキストと画像は poppler、画像は ImageMagick と heif-convert（`preprocess.ts`）。結果は
+  `/work/extracted/<元のファイル名>/` に置き、目次を `index.md` に書く
+- ジョブの流れに、前処理・結果の S3 への保存と再実行での取得・元のファイルの削除・ハートビートと進捗（30 秒ごと）・
+  時間の実測を足した。進捗はエージェントの道具の呼び出しから機械的に作る
+- システムプロンプトを、前処理の結果の目次から読む形に書き直した
+- MicroVM イメージに前処理の道具と Python の道具を足した。本番のスタックにジョブのバケット（1 日で消える）と表
+  （ttl・利用者ごとの GSI）、ワーカーの IAM と MicroVM イメージを足した
+
+### 判断・つまずき
+
+- 構想書のイメージの道具のうち、LibreOffice・libvips・exiftool・pandas・DuckDB は AL2023 のリポジトリに無かった
+  （手元の Docker で `dnf repoquery` して確認）。LibreOffice は配布元の RPM、Python の道具は venv と pip で入れ、
+  libvips と exiftool は ImageMagick で代えた
+- LibreOffice の RPM を `dnf install` で入れようとしたが、基盤イメージの dnf は microdnf でファイルの RPM を入れられなかった。
+  `rpm -i` に変え、足りないライブラリを `ldd` で洗い出して dnf で入れた
+- コンテナに UTF-8 のロケールが無く、LibreOffice が日本語のシート名を `???` にして、全シートが 1 つの CSV に潰れた。
+  前処理のコマンドは `LANG=C.UTF-8` で動かす
+- 一時ディレクトリと出力先が別のファイルシステムだと `rename` が EXDEV で失敗した（手元の Docker でボリュームに出したとき）。
+  写して消す形に戻れるようにした。xlsx で「CSV がありません」と出ていたのは、この失敗を握りつぶした警告だった
+- AL2023 の ImageMagick は HEIC を読めるが EXIF を読めなかった。heif-convert で JPEG にすると EXIF が残った
+- Word の「箇条書き」スタイルは段落ではなくスタイルの側に番号付けを持つので、スタイルの定義も見るようにした
+- 新しく入れた依存が自分で `createRequire` を import しており、esbuild でまとめたワーカーが「Identifier 'createRequire'
+  has already been declared」で起動しなくなった。まとめた結果を手元の Docker で動かして見つけた。先頭に足す行を別名の
+  import にし、まとめた結果を `node --check` で確かめるテストを足した
+- 確認用のサンプルは、架空の内容で手元に作った（リポジトリには入れない）。文書の中にプロンプトインジェクションの文言を仕込んだ
