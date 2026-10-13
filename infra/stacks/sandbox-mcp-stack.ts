@@ -34,6 +34,8 @@ export function createSandboxMcpStack(
     enforceSSL: true,
     lifecycleRules: [{ prefix: "jobs/", expiration: cdk.Duration.days(1) }],
     removalPolicy: cdk.RemovalPolicy.DESTROY,
+    // ファイルは 1 日で消えるが、その間に cdk destroy しても失敗しないよう、スタックの削除時に中身も消す
+    autoDeleteObjects: true,
   });
 
   const table = new dynamodb.TableV2(stack, "JobsTable", {

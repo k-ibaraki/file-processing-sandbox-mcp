@@ -59,6 +59,12 @@ describe("ジョブのバケットと表", () => {
     });
   });
 
+  test("スタックを消すとき、ジョブのファイルが残っていてもバケットごと消せる", () => {
+    // ファイルは 1 日で消える設計だが、その間に cdk destroy すると空でないバケットの削除で失敗するため
+    template.hasResource("AWS::S3::Bucket", { DeletionPolicy: "Delete" });
+    template.hasResourceProperties("Custom::S3AutoDeleteObjects", {});
+  });
+
   test("ジョブ表はオンデマンドで、ttl で消え、利用者ごとの一覧用の GSI を持つ", () => {
     template.hasResourceProperties("AWS::DynamoDB::GlobalTable", {
       BillingMode: "PAY_PER_REQUEST",
