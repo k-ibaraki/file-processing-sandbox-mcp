@@ -141,6 +141,12 @@ async function move(from: string, to: string): Promise<void> {
 const LIBREOFFICE_PROFILE =
   "-env:UserInstallation=file:///tmp/libreoffice-profile";
 
+/** 元のファイル名に依らないよう、一時ディレクトリの決まった名前に symlink する（できなければ写す） */
+async function stage(input: string, destination: string): Promise<string> {
+  await symlink(input, destination).catch(() => copyFile(input, destination));
+  return destination;
+}
+
 /** LibreOffice で変換し、出力ファイルのパスを返す。元のファイル名に依らないよう、一時ディレクトリに別名で置いてから変換する */
 async function libreoffice(
   ctx: Context,
@@ -149,8 +155,7 @@ async function libreoffice(
   filter: string,
   outExt: string,
 ): Promise<string> {
-  const source = join(ctx.tmp, `source${sourceExt}`);
-  await symlink(input, source).catch(() => copyFile(input, source));
+  const source = await stage(input, join(ctx.tmp, `source${sourceExt}`));
   const outDir = join(ctx.tmp, `lo-${outExt}`);
   await ctx.run("soffice", [
     "--headless",
@@ -296,41 +301,87 @@ async function processXlsx(ctx: Context, input: string): Promise<void> {
   const csvDir = join(ctx.tmp, "lo-csv");
   const dir = join(ctx.out, "sheets");
   await mkdir(dir, { recursive: true });
-  const lines: string[] = [];
+  // LibreOffice は全シートを書き出すとき「元の名前-シート名.csv」にする。シート名に使えない文字は置き換えられうるので、
+  // 書き出されたファイルを一覧し、シート名と一致するものを探す
+  const produced = new Map(
+    (await readdir(csvDir))
+      .filter((file) => file.startsWith("source-") && file.endsWith(".csv"))
+      .map((file) => [file.slice("source-".length, -".csv".length), file]),
+  );
+  const describe = async (file: string, target: string) => {
+    const { rows, columns } = csvShape(
+      await readFile(join(csvDir, file), "utf8"),
+    );
+    await move(join(csvDir, file), join(dir, target));
+    return { rows, columns };
+  };
   for (const sheet of sheets) {
-    // LibreOffice は全シートを書き出すとき「元の名前-シート名.csv」にする
-    const produced = join(csvDir, `source-${sheet.name}.csv`);
-    const target = `${safeName(sheet.name)}.csv`;
-    const text = await readFile(produced, "utf8").catch(() => undefined);
-    if (text === undefined) {
+    const file = produced.get(sheet.name);
+    if (file === undefined) {
       ctx.summary.warnings.push(
         `シート「${sheet.name}」の CSV がありません（グラフだけのシートなど）`,
       );
       continue;
     }
-    const { rows, columns } = csvShape(text);
-    await move(produced, join(dir, target));
-    lines.push(
+    produced.delete(sheet.name);
+    const target = `${safeName(sheet.name)}.csv`;
+    const { rows, columns } = await describe(file, target);
+    ctx.summary.outputs.push(
       `${ctx.rel}/sheets/${target}: シート「${sheet.name}」${sheet.hidden ? "（非表示）" : ""} ${rows} 行 × ${columns} 列`,
     );
   }
-  ctx.summary.outputs.push(...lines);
+  // どのシートとも名前が合わない CSV も捨てずに渡す
+  for (const [name, file] of produced) {
+    const target = `${safeName(name)}.csv`;
+    const { rows, columns } = await describe(file, target);
+    ctx.summary.outputs.push(
+      `${ctx.rel}/sheets/${target}: シート名を特定できない CSV ${rows} 行 × ${columns} 列`,
+    );
+  }
 }
+
+/** ImageMagick が読んでよい形式。拡張子から決める（中身から決めさせない） */
+const IMAGE_CODERS: Record<string, string> = {
+  ".jpg": "jpeg",
+  ".jpeg": "jpeg",
+  ".png": "png",
+};
+
+/** ImageMagick の資源の上限。巨大な画像でワーカーのメモリを使い切らないようにする */
+const IMAGEMAGICK_LIMITS = [
+  "-limit",
+  "memory",
+  "1GiB",
+  "-limit",
+  "map",
+  "2GiB",
+  "-limit",
+  "area",
+  "512MP",
+];
 
 async function processImage(
   ctx: Context,
   input: string,
   ext: string,
 ): Promise<void> {
-  let source = input;
+  // ImageMagick は形式をファイルの中身で判定し、拡張子と違う形式（SVG など）のデコーダーでも読んでしまう。
+  // 信頼できない入力なので、決まった名前に置き、形式の接頭辞（jpeg: や png:）で読む形式を固定する
+  let ref: string;
   if (ext === ".heic" || ext === ".heif") {
     // AL2023 の ImageMagick は HEIC の EXIF を読めないため、EXIF を残す JPEG に heif-convert で直してから扱う
-    source = join(ctx.tmp, "converted.jpg");
-    await ctx.run("heif-convert", ["-q", "95", input, source]);
+    const converted = join(ctx.tmp, "converted.jpg");
+    await ctx.run("heif-convert", ["-q", "95", input, converted]);
+    ref = `jpeg:${converted}`;
+  } else {
+    const coder = IMAGE_CODERS[ext];
+    if (!coder) throw new Error(`対応していない画像の形式です: ${ext}`);
+    ref = `${coder}:${await stage(input, join(ctx.tmp, `source${ext}`))}`;
   }
   const outName = ext === ".jpg" || ext === ".jpeg" ? "image.jpg" : "image.png";
   await ctx.run("convert", [
-    source,
+    ...IMAGEMAGICK_LIMITS,
+    `${ref}[0]`,
     "-auto-orient",
     "-resize",
     `${IMAGE_LONG_SIDE}x${IMAGE_LONG_SIDE}>`,
@@ -339,12 +390,13 @@ async function processImage(
   ctx.summary.outputs.push(
     `${ctx.rel}/${outName}: 長辺 ${IMAGE_LONG_SIDE}px 以下に縮小した画像`,
   );
+  // -ping は画像を読み込まずに大きさとメタデータだけを調べる
   const size = (
-    await ctx.run("identify", ["-format", "%wx%h", `${source}[0]`])
+    await ctx.run("identify", ["-ping", "-format", "%wx%h", `${ref}[0]`])
   ).trim();
   const exif = formatExif(
     await ctx
-      .run("identify", ["-format", "%[EXIF:*]", `${source}[0]`])
+      .run("identify", ["-ping", "-format", "%[EXIF:*]", `${ref}[0]`])
       .catch(() => ""),
   );
   await writeFile(

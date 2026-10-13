@@ -6,6 +6,19 @@ import type { RunCommand } from "./preprocess";
 /** 1 コマンドの制限時間。大きな文書の変換でも収まる長さにし、固まったときに止める */
 const TIMEOUT_MS = 10 * 60_000;
 
+/**
+ * 前処理のコマンドに渡す環境変数。信頼できないファイルを読むコマンドなので、ワーカーの設定は渡さない。
+ * イメージには UTF-8 のロケールが設定されておらず、LibreOffice が日本語のシート名を ??? にするため、ここで指定する
+ */
+export function commandEnv(parent: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
+  const env: NodeJS.ProcessEnv = {};
+  for (const name of ["PATH", "HOME", "TMPDIR"]) {
+    const value = parent[name];
+    if (value !== undefined) env[name] = value;
+  }
+  return { ...env, LANG: "C.UTF-8", LC_ALL: "C.UTF-8" };
+}
+
 export function createRunCommand(): RunCommand {
   return (command, args) =>
     new Promise((resolve, reject) => {
@@ -16,8 +29,7 @@ export function createRunCommand(): RunCommand {
           timeout: TIMEOUT_MS,
           killSignal: "SIGKILL",
           maxBuffer: 64 * 1024 * 1024,
-          // イメージには UTF-8 のロケールが設定されておらず、LibreOffice が日本語のシート名を ??? にするため
-          env: { ...process.env, LANG: "C.UTF-8", LC_ALL: "C.UTF-8" },
+          env: commandEnv(process.env),
         },
         (error, stdout, stderr) => {
           if (error) {
