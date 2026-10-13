@@ -66,6 +66,17 @@ export function safeName(name: string): string {
   return replaced === "" || /^\.+$/.test(replaced) ? `_${replaced}` : replaced;
 }
 
+/** used にある名前と重なるときは、拡張子の前に連番を付けて、使っていない名前にする。選んだ名前は used に足す */
+export function uniqueName(used: Set<string>, name: string): string {
+  const dot = name.lastIndexOf(".");
+  const [base, ext] =
+    dot > 0 ? [name.slice(0, dot), name.slice(dot)] : [name, ""];
+  let candidate = name;
+  for (let n = 2; used.has(candidate); n++) candidate = `${base}-${n}${ext}`;
+  used.add(candidate);
+  return candidate;
+}
+
 /** 連番のファイル名。総数の桁に揃え、最低 3 桁にする */
 export function pageName(index: number, total: number, ext: string): string {
   const width = Math.max(3, String(total).length);
@@ -303,12 +314,13 @@ async function processXlsx(ctx: Context, input: string): Promise<void> {
   await mkdir(dir, { recursive: true });
   // LibreOffice は全シートを書き出すとき「元の名前-シート名.csv」にする。シート名に使えない文字は置き換えられうるので、
   // 書き出されたファイルを一覧し、シート名と一致するものを探す
+  const usedTargets = new Set<string>();
   const produced = new Map(
     (await readdir(csvDir))
       .filter((file) => file.startsWith("source-") && file.endsWith(".csv"))
       .map((file) => [file.slice("source-".length, -".csv".length), file]),
   );
-  const describe = async (file: string, target: string) => {
+  const moveCsv = async (file: string, target: string) => {
     const { rows, columns } = csvShape(
       await readFile(join(csvDir, file), "utf8"),
     );
@@ -324,16 +336,16 @@ async function processXlsx(ctx: Context, input: string): Promise<void> {
       continue;
     }
     produced.delete(sheet.name);
-    const target = `${safeName(sheet.name)}.csv`;
-    const { rows, columns } = await describe(file, target);
+    const target = uniqueName(usedTargets, `${safeName(sheet.name)}.csv`);
+    const { rows, columns } = await moveCsv(file, target);
     ctx.summary.outputs.push(
       `${ctx.rel}/sheets/${target}: シート「${sheet.name}」${sheet.hidden ? "（非表示）" : ""} ${rows} 行 × ${columns} 列`,
     );
   }
   // どのシートとも名前が合わない CSV も捨てずに渡す
   for (const [name, file] of produced) {
-    const target = `${safeName(name)}.csv`;
-    const { rows, columns } = await describe(file, target);
+    const target = uniqueName(usedTargets, `${safeName(name)}.csv`);
+    const { rows, columns } = await moveCsv(file, target);
     ctx.summary.outputs.push(
       `${ctx.rel}/sheets/${target}: シート名を特定できない CSV ${rows} 行 × ${columns} 列`,
     );
@@ -427,6 +439,8 @@ async function processFile(
   run: RunCommand,
   input: string,
   name: string,
+  /** extracted の下に作るフォルダ名（安全な名前で、ほかのファイルと重ならない） */
+  rel: string,
   extractedDir: string,
   tmpRoot: string,
 ): Promise<FileSummary> {
@@ -441,7 +455,6 @@ async function processFile(
     summary.error = "対応していない形式です";
     return summary;
   }
-  const rel = safeName(name);
   const ctx: Context = {
     run,
     tmp: join(tmpRoot, rel),
@@ -527,6 +540,7 @@ export async function preprocessAll(
     .sort();
   await mkdir(options.extractedDir, { recursive: true });
   const summaries: FileSummary[] = [];
+  const usedFolders = new Set<string>(["index.md"]);
   for (const [i, name] of names.entries()) {
     options.onProgress(`前処理 ${i + 1}/${names.length}件: ${name}`);
     summaries.push(
@@ -534,6 +548,7 @@ export async function preprocessAll(
         options.run,
         join(options.inputDir, name),
         name,
+        uniqueName(usedFolders, safeName(name)),
         options.extractedDir,
         options.tmpDir,
       ),

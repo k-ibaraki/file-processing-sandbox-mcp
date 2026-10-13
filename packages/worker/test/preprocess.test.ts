@@ -12,6 +12,7 @@ import {
   type RunCommand,
   safeName,
   splitPages,
+  uniqueName,
 } from "../src/preprocess";
 
 describe("detectKind", () => {
@@ -28,6 +29,17 @@ describe("safeName", () => {
     expect(safeName("a/b\\c:d.csv")).toBe("a_b_c_d.csv");
     expect(safeName("..")).toBe("_..");
     expect(safeName("売上")).toBe("売上");
+  });
+});
+
+describe("uniqueName", () => {
+  test("使った名前と重なるときは、拡張子の前に連番を付ける", () => {
+    const used = new Set<string>();
+    expect(uniqueName(used, "A_B.csv")).toBe("A_B.csv");
+    expect(uniqueName(used, "A_B.csv")).toBe("A_B-2.csv");
+    expect(uniqueName(used, "A_B.csv")).toBe("A_B-3.csv");
+    expect(uniqueName(used, "a_b")).toBe("a_b");
+    expect(uniqueName(used, "a_b")).toBe("a_b-2");
   });
 });
 
@@ -159,6 +171,36 @@ describe("preprocessAll", () => {
       "見積.xlsx/sheets/売上.csv: シート「売上」 2 行 × 2 列",
     );
     expect(index).toContain("注意: シート「グラフ」の CSV がありません");
+  });
+
+  test("安全な名前にすると同じになるファイル名やシート名でも、結果を上書きせず別々に残す", async () => {
+    const files = await setup({ "a:b.txt": "一つ目", "a_b.txt": "二つ目" });
+    expect(
+      (await readdir(files.extractedDir))
+        .filter((n) => n !== "index.md")
+        .sort(),
+    ).toEqual(["a_b-2.txt", "a_b.txt"]);
+    expect(
+      await readFile(join(files.extractedDir, "a_b.txt/a_b.txt"), "utf8"),
+    ).toBe("一つ目");
+
+    const book = zipSync({
+      "xl/workbook.xml": strToU8(
+        '<workbook><sheets><sheet name="A:B"/><sheet name="A?B"/></sheets></workbook>',
+      ),
+    });
+    const { extractedDir } = await setup({ "見積.xlsx": book }, ["A:B", "A?B"]);
+    expect(
+      (await readdir(join(extractedDir, "見積.xlsx/sheets"))).sort(),
+    ).toEqual(["A_B-2.csv", "A_B.csv"]);
+  });
+
+  test("index.md という名前の入力があっても、目次のファイルを上書きしない", async () => {
+    const { extractedDir, index } = await setup({ "index.md": "入力のメモ" });
+    expect(index).toContain("# 前処理の結果");
+    expect(
+      await readFile(join(extractedDir, "index-2.md/index.md"), "utf8"),
+    ).toBe("入力のメモ");
   });
 
   test("旧形式は LibreOffice で新しい形式にしてから読む", async () => {
