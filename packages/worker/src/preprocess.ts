@@ -28,6 +28,8 @@ export interface FileSummary {
   warnings: string[];
   /** ファイル全体の前処理に失敗したときの理由 */
   error?: string;
+  /** このファイルの前処理にかかった時間（実測の報告用。目次には書かない） */
+  durationMs?: number;
 }
 
 /** ページ画像と縮小画像の長辺 */
@@ -543,16 +545,17 @@ export async function preprocessAll(
   const usedFolders = new Set<string>(["index.md"]);
   for (const [i, name] of names.entries()) {
     options.onProgress(`前処理 ${i + 1}/${names.length}件: ${name}`);
-    summaries.push(
-      await processFile(
-        options.run,
-        join(options.inputDir, name),
-        name,
-        uniqueName(usedFolders, safeName(name)),
-        options.extractedDir,
-        options.tmpDir,
-      ),
+    const started = Date.now();
+    const summary = await processFile(
+      options.run,
+      join(options.inputDir, name),
+      name,
+      uniqueName(usedFolders, safeName(name)),
+      options.extractedDir,
+      options.tmpDir,
     );
+    summary.durationMs = Date.now() - started;
+    summaries.push(summary);
   }
   await writeFile(
     join(options.extractedDir, "index.md"),

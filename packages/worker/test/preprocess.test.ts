@@ -299,6 +299,18 @@ describe("preprocessAll", () => {
     ]);
   });
 
+  test("ファイルごとにかかった時間を記録する（目次には書かない）", async () => {
+    const { summaries, index } = await setup({
+      "報告.pdf": "%PDF",
+      "a.dwg": "x",
+    });
+    for (const summary of summaries) {
+      expect(summary.durationMs).toEqual(expect.any(Number));
+      expect(summary.durationMs).toBeGreaterThanOrEqual(0);
+    }
+    expect(index).not.toContain("durationMs");
+  });
+
   test("一時ディレクトリは処理の後に消す", async () => {
     const { root } = await setup({ "報告.pdf": "%PDF" });
     expect(await readdir(join(root, "tmp"))).toEqual([]);
