@@ -37,4 +37,17 @@ describe("createRunCommand", () => {
       /sh が失敗しました: 壊れた/,
     );
   });
+
+  test("実行するコマンドには、ワーカーの設定の環境変数が見えない", async () => {
+    process.env.JOBS_TABLE_NAME = "jobs-table";
+    try {
+      const out = await createRunCommand()("sh", [
+        "-c",
+        'printf "%s|%s" "$JOBS_TABLE_NAME" "$LANG"',
+      ]);
+      expect(out).toBe("|C.UTF-8");
+    } finally {
+      delete process.env.JOBS_TABLE_NAME;
+    }
+  });
 });
