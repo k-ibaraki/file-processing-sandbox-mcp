@@ -311,6 +311,8 @@ s3://<bucket>/jobs/<job_id>/
 - [x] 東京の日本国内推論でプロンプトキャッシュが効くか → 効く（1ジョブでキャッシュ読み込み3.5万トークン、書き込み5千トークン）。ただしTTLは5分なので、長いBashの実行をまたぐと書き込みが増える（実測：A2・B。ドキュメント：[Bedrockのプロンプトキャッシュ](https://docs.aws.amazon.com/bedrock/latest/userguide/prompt-caching.html)）
 - [x] 受信を無効にしたMicroVM（`NO_INGRESS`）でも `/run` フックが呼ばれ、`--run-hook-payload` が届くか → 届く（実測：A2以降のすべてのジョブ）
 - [x] アイドルポリシーで処理中のワーカーがサスペンドされないか → 指定するとサスペンドされる（`maxIdleDurationSeconds: 60` で処理中に `SUSPENDED`）。指定しなければ5分の処理中もサスペンドされなかった。サスペンドのまま終了されると `/terminate` は呼ばれず、ジョブは `RUNNING` のまま残る（実測：C1・C2。決定16）
+- [ ] MicroVM内でLibreOffice（headless）の変換が動き、4GB基準のメモリと時間に収まるか（手元のDockerでは動いた。実装ステップ2の実測で確かめる）
+- [ ] エージェントのBashサンドボックスから `/opt/py` のPython（pandas・DuckDB）が使えるか（実装ステップ2の実測で確かめる）
 - [ ] Function URLのストリーミングで、最大14分の待機中に進捗通知が呼び出し側に届くか
 - [ ] Cognitoのアクセストークンには `aud` がない。MCPの認可仕様が求める「このサーバー宛てのトークンか」の検証を、スコープとクライアントIDでどう担保するか
 
