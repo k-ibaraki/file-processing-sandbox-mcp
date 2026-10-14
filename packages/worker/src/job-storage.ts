@@ -163,17 +163,20 @@ export function createJobStorage(
         }
         // downloadTo と同じく、数百 MB の CSV などをメモリに載せない。SDK は送り直さないので、ストリームを作り直して送り直す
         for (let attempt = 1; ; attempt++) {
+          const body = createReadStream(file);
           try {
             await s3.send(
               new PutObjectCommand({
                 Bucket: bucket,
                 Key: key,
-                Body: createReadStream(file),
+                Body: body,
                 ContentLength: size,
               }),
             );
             return;
           } catch (e) {
+            // 本文を送る前に失敗すると（SDK は大きな本文に Expect: 100-continue を付ける）、ストリームは開いたまま残る
+            body.destroy();
             if (attempt >= STREAM_ATTEMPTS) throw e;
             // S3 が混雑して返す 503 は、すぐ送り直すと同じ応答が返りやすい
             await setTimeout(retryDelayMs * attempt);

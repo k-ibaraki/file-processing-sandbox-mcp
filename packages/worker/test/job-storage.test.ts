@@ -285,6 +285,34 @@ describe("downloadExtracted / uploadExtracted", () => {
     expect(third - second).toBeGreaterThanOrEqual(95);
   });
 
+  test("本文を読む前に失敗したストリームは閉じる（ファイル記述子を残さない）", async () => {
+    // SDK は大きな本文に Expect: 100-continue を付けるので、本文を送る前に失敗することがある
+    const fake = fakeS3();
+    const bodies: Readable[] = [];
+    const s3 = {
+      send: async (command: unknown) => {
+        if (
+          command instanceof PutObjectCommand &&
+          command.input.Key === "jobs/J1/extracted/明細.csv"
+        ) {
+          bodies.push(command.input.Body as Readable);
+          if (bodies.length < 3) throw new Error("SlowDown");
+        }
+        return fake.s3.send(command as never);
+      },
+    } as unknown as Pick<S3Client, "send">;
+    const dir = await tmp();
+    await writeFile(
+      join(dir, "明細.csv"),
+      Buffer.alloc(MAX_BUFFERED_BYTES + 1),
+    );
+    await createJobStorage(s3, "bucket", { retryDelayMs: 1 }).uploadExtracted(
+      "J1",
+      dir,
+    );
+    expect(bodies.slice(0, 2).map((b) => b.destroyed)).toEqual([true, true]);
+  });
+
   test("ストリームで送るファイルが決まった回数失敗したら、印を置かずに失敗する", async () => {
     const fake = fakeS3();
     const s3 = {
