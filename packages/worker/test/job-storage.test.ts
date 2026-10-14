@@ -278,8 +278,9 @@ describe("downloadExtracted / uploadExtracted", () => {
       dir,
     );
     const [first = 0, second = 0, third = 0] = attempts;
-    expect(second - first).toBeGreaterThanOrEqual(50);
-    expect(third - second).toBeGreaterThanOrEqual(100);
+    // タイマーと Date.now() の精度の違いで数 ms 短く測られうるので、下限に余裕を持たせる
+    expect(second - first).toBeGreaterThanOrEqual(45);
+    expect(third - second).toBeGreaterThanOrEqual(95);
   });
 
   test("ストリームで送るファイルが決まった回数失敗したら、印を置かずに失敗する", async () => {
