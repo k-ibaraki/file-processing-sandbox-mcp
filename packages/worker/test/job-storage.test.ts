@@ -79,6 +79,7 @@ function fakeS3(initial: Record<string, string> = {}) {
 }
 
 const tmp = () => mkdtemp(join(tmpdir(), "storage-"));
+const noWait = async () => {};
 
 describe("localPath", () => {
   test("ディレクトリの下のパスにし、外を指すものは拒否する", () => {
@@ -245,7 +246,7 @@ describe("downloadExtracted / uploadExtracted", () => {
       join(dir, "明細.csv"),
       Buffer.alloc(MAX_BUFFERED_BYTES + 1),
     );
-    await createJobStorage(s3, "bucket", { retryDelayMs: 1 }).uploadExtracted(
+    await createJobStorage(s3, "bucket", { sleep: noWait }).uploadExtracted(
       "J1",
       dir,
     );
@@ -255,17 +256,19 @@ describe("downloadExtracted / uploadExtracted", () => {
   });
 
   test("ストリームで送り直す前に、回を重ねるごとに長く待つ", async () => {
-    // S3 が混雑して返す 503 は、すぐ送り直すと同じ応答が返りやすい
+    // S3 が混雑して返す 503 は、すぐ送り直すと同じ応答が返りやすい。実時間に頼らないよう、待つ関数を差し替えて順番と長さを見る
     const fake = fakeS3();
-    const attempts: number[] = [];
+    const events: string[] = [];
     const s3 = {
       send: async (command: unknown) => {
         if (
           command instanceof PutObjectCommand &&
           command.input.Key === "jobs/J1/extracted/明細.csv"
         ) {
-          attempts.push(Date.now());
-          if (attempts.length < 3) throw new Error("SlowDown");
+          events.push("send");
+          if (events.filter((e) => e === "send").length < 3) {
+            throw new Error("SlowDown");
+          }
         }
         return fake.s3.send(command as never);
       },
@@ -275,16 +278,18 @@ describe("downloadExtracted / uploadExtracted", () => {
       join(dir, "明細.csv"),
       Buffer.alloc(MAX_BUFFERED_BYTES + 1),
     );
-    await createJobStorage(s3, "bucket", { retryDelayMs: 100 }).uploadExtracted(
-      "J1",
-      dir,
-    );
-    const [first = 0, second = 0, third = 0] = attempts;
-    // 1 回目は 100ms、2 回目は 200ms 待つ。タイマーと Date.now() の精度の違いで数 ms 短く測られうるので、下限に余裕を持たせる。
-    // 1 回目に上限を付けるのは、毎回同じ長さ（200ms）待つように壊しても落ちるようにするため
-    expect(second - first).toBeGreaterThanOrEqual(95);
-    expect(second - first).toBeLessThan(190);
-    expect(third - second).toBeGreaterThanOrEqual(195);
+    await createJobStorage(s3, "bucket", {
+      sleep: async (ms) => {
+        events.push(`sleep ${ms}`);
+      },
+    }).uploadExtracted("J1", dir);
+    expect(events).toEqual([
+      "send",
+      "sleep 1000",
+      "send",
+      "sleep 2000",
+      "send",
+    ]);
   });
 
   test("本文を読む前に失敗したストリームは閉じる（ファイル記述子を残さない）", async () => {
@@ -308,7 +313,7 @@ describe("downloadExtracted / uploadExtracted", () => {
       join(dir, "明細.csv"),
       Buffer.alloc(MAX_BUFFERED_BYTES + 1),
     );
-    await createJobStorage(s3, "bucket", { retryDelayMs: 1 }).uploadExtracted(
+    await createJobStorage(s3, "bucket", { sleep: noWait }).uploadExtracted(
       "J1",
       dir,
     );
@@ -336,7 +341,7 @@ describe("downloadExtracted / uploadExtracted", () => {
       Buffer.alloc(MAX_BUFFERED_BYTES + 1),
     );
     await expect(
-      createJobStorage(s3, "bucket", { retryDelayMs: 1 }).uploadExtracted(
+      createJobStorage(s3, "bucket", { sleep: noWait }).uploadExtracted(
         "J1",
         dir,
       ),

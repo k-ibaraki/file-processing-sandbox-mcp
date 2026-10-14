@@ -59,15 +59,18 @@ async function listFiles(dir: string): Promise<string[]> {
     .map((entry) => join(entry.parentPath, entry.name));
 }
 
+/** ストリームで送り直す前に待つ時間の単位。n 回目の送り直しの前に n 倍待つ */
+const RETRY_DELAY_MS = 1000;
+
 export interface JobStorageOptions {
-  /** ストリームで送り直す前に待つ時間の単位。n 回目の送り直しの前に n 倍待つ */
-  retryDelayMs?: number;
+  /** 待つ関数。テストで実時間を待たずに、待つ長さを確かめるために差し替える */
+  sleep?: (ms: number) => Promise<void>;
 }
 
 export function createJobStorage(
   s3: Pick<S3Client, "send">,
   bucket: string,
-  { retryDelayMs = 1000 }: JobStorageOptions = {},
+  { sleep = (ms) => setTimeout(ms) }: JobStorageOptions = {},
 ) {
   /** prefix の下のキーを、最後のページまで集める（1 回の一覧は 1,000 件まで） */
   async function listKeys(prefix: string): Promise<string[]> {
@@ -179,7 +182,7 @@ export function createJobStorage(
             body.destroy();
             if (attempt >= STREAM_ATTEMPTS) throw e;
             // S3 が混雑して返す 503 は、すぐ送り直すと同じ応答が返りやすい
-            await setTimeout(retryDelayMs * attempt);
+            await sleep(RETRY_DELAY_MS * attempt);
           }
         }
       });
