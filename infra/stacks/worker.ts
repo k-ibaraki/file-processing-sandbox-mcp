@@ -60,7 +60,7 @@ export function createWorker(stack: cdk.Stack, props: WorkerProps) {
   );
   // ワーカーが使う操作だけを許す。前処理の外部ツールが乗っ取られても、ファイルを削除したり、表を Scan したりはできない。
   // ただし、ジョブごとには絞れていない（全ジョブ共通の実行ロールのため。決定29）。S3 の一覧から全ジョブの ID が分かり、
-  // 他のジョブのファイルと項目を読めるうえ、PutObject・UpdateItem で上書きもできる。項目は ttl を過去に書き換えれば消せる
+  // 他のジョブのファイルと項目を読めるうえ、PutObject・UpdateItem で上書きもできる。項目は ttl を過去に書き換えれば消せる。
   // 表は GSI を含めず表だけ。S3 の一覧には条件を付けない。S3 は無いキーの HeadObject に、ListBucket の権限が
   // あるときだけ 404 を返す（hasExtracted が使う）。prefix の条件付きでも 404 になるかは確かめておらず、
   // キーはすべて jobs/ の下なので、条件を付けても絞れない
