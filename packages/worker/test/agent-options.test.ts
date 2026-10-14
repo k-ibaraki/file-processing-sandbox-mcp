@@ -109,4 +109,11 @@ describe("buildAgentOptions", () => {
     expect(prompt).toContain("python3 - <<'EOF'");
     expect(prompt).toContain("ファイルへの書き出し");
   });
+
+  test("Bash の書き方の指示に、実測していない形（tee）を拒否されると断定して書かない", () => {
+    // 実測で拒否されたのは cat > ファイル だけ。tee は試していない
+    const prompt = String(buildAgentOptions(base).systemPrompt);
+    expect(prompt).toContain("cat >");
+    expect(prompt).not.toContain("tee");
+  });
 });

@@ -165,7 +165,10 @@ async function stage(input: string, destination: string): Promise<string> {
   return destination;
 }
 
-/** LibreOffice で変換し、出力ファイルのパスを返す。元のファイル名に依らないよう、一時ディレクトリに別名で置いてから変換する */
+/**
+ * LibreOffice で変換し、出力ファイルのパスを返す。元のファイル名に依らないよう、一時ディレクトリに別名で置いてから変換する。
+ * xlsx の CSV はシートごとの複数ファイル（`source-<シート名>.csv`）になるので、返すパスは存在しない。呼び出し側が出力先を一覧する
+ */
 async function libreoffice(
   ctx: Context,
   input: string,
