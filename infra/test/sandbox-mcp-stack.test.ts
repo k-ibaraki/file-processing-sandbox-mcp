@@ -176,7 +176,7 @@ describe("MicroVM のワーカー", () => {
   });
 
   test("実行ロールの S3 と DynamoDB の権限は、ワーカーが使う操作だけにする", () => {
-    // 前処理の外部ツールが乗っ取られても、他のジョブのファイルや項目を消せないようにするため（決定27）
+    // 前処理の外部ツールが乗っ取られても、削除と Scan はできないようにするため。上書きは防げない（決定29）
     const statements = policyStatements(/execution role/);
     const actionsOf = (service: string) =>
       new Set(

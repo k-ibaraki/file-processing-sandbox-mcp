@@ -58,8 +58,9 @@ export function createWorker(stack: cdk.Stack, props: WorkerProps) {
     "WorkerExecutionRole",
     "MicroVM execution role (used only by the worker code)",
   );
-  // ワーカーが使う操作だけを許す。前処理の外部ツールが乗っ取られても、ファイルや項目を消したり、表を全件調べたりできないようにする。
-  // S3 は jobs/ の下を全ジョブ分読めて一覧もできる。ジョブごとに絞るのは、全ジョブ共通の実行ロールではできない（決定29）
+  // ワーカーが使う操作だけを許す。前処理の外部ツールが乗っ取られても、ファイルや項目を削除したり、表を Scan したりはできない。
+  // ただし、ジョブごとには絞れていない（全ジョブ共通の実行ロールのため。決定29）。S3 の一覧から全ジョブの ID が分かり、
+  // 他のジョブのファイルと項目を読めるうえ、PutObject・UpdateItem で上書きもできる
   // 表は GSI を含めず表だけ。S3 の一覧には条件を付けない。S3 は無いキーの HeadObject に、ListBucket の権限が
   // あるときだけ 404 を返す（hasExtracted が使う）。prefix の条件付きでも 404 になるかは確かめておらず、
   // キーはすべて jobs/ の下なので、条件を付けても絞れない
