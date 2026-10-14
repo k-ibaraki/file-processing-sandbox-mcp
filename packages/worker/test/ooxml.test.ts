@@ -128,6 +128,21 @@ describe("extractDocx", () => {
     expect(() => extractDocx(data)).toThrow("大きすぎます");
   });
 
+  test("部品は 1 つずつなら上限以内でも、展開後の合計が大きすぎれば、展開する前に拒否する", () => {
+    const data = docx(`<w:p>${run("x")}</w:p>`, {
+      "word/styles.xml": "<w:styles/>",
+      "word/comments.xml": "<w:comments/>",
+    });
+    // 3 つの部品の「展開後のサイズ」をそれぞれ 200MB に書き換える（1 つなら上限以内、合計は 600MB）
+    const view = new DataView(data.buffer, data.byteOffset, data.byteLength);
+    for (let i = 0; i + 4 <= data.length; i++) {
+      if (view.getUint32(i, true) === 0x02014b50) {
+        view.setUint32(i + 24, 200 * 1024 * 1024, true);
+      }
+    }
+    expect(() => extractDocx(data)).toThrow("合計");
+  });
+
   test("本文が無いファイルは拒否する", () => {
     expect(() => extractDocx(zip({ "x.xml": "<x/>" }))).toThrow(
       "word/document.xml",

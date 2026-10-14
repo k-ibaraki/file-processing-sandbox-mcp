@@ -7,6 +7,8 @@ import { unzipSync } from "fflate";
 
 /** 1 つの部品を展開するときの上限。圧縮率の高い細工されたファイルでメモリを使い切らないようにする */
 const MAX_PART_BYTES = 256 * 1024 * 1024;
+/** 読む部品を展開した合計の上限。部品ごとの上限を満たす部品を大量に並べたファイルで、メモリを使い切らないようにする */
+const MAX_TOTAL_BYTES = 512 * 1024 * 1024;
 
 interface XmlNode {
   name: string;
@@ -65,6 +67,7 @@ function first(nodes: XmlNode[], name: string): XmlNode | undefined {
 type Parts = Record<string, string>;
 
 function readParts(data: Uint8Array, wanted: (name: string) => boolean): Parts {
+  let total = 0;
   const files = unzipSync(data, {
     filter: (file) => {
       if (!wanted(file.name)) return false;
@@ -72,6 +75,10 @@ function readParts(data: Uint8Array, wanted: (name: string) => boolean): Parts {
         throw new Error(
           `${file.name} が大きすぎます（${file.originalSize} バイト）`,
         );
+      }
+      total += file.originalSize;
+      if (total > MAX_TOTAL_BYTES) {
+        throw new Error(`展開後の合計が大きすぎます（${total} バイト以上）`);
       }
       return true;
     },
