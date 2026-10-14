@@ -275,14 +275,16 @@ describe("downloadExtracted / uploadExtracted", () => {
       join(dir, "明細.csv"),
       Buffer.alloc(MAX_BUFFERED_BYTES + 1),
     );
-    await createJobStorage(s3, "bucket", { retryDelayMs: 50 }).uploadExtracted(
+    await createJobStorage(s3, "bucket", { retryDelayMs: 100 }).uploadExtracted(
       "J1",
       dir,
     );
     const [first = 0, second = 0, third = 0] = attempts;
-    // タイマーと Date.now() の精度の違いで数 ms 短く測られうるので、下限に余裕を持たせる
-    expect(second - first).toBeGreaterThanOrEqual(45);
-    expect(third - second).toBeGreaterThanOrEqual(95);
+    // 1 回目は 100ms、2 回目は 200ms 待つ。タイマーと Date.now() の精度の違いで数 ms 短く測られうるので、下限に余裕を持たせる。
+    // 1 回目に上限を付けるのは、毎回同じ長さ（200ms）待つように壊しても落ちるようにするため
+    expect(second - first).toBeGreaterThanOrEqual(95);
+    expect(second - first).toBeLessThan(190);
+    expect(third - second).toBeGreaterThanOrEqual(195);
   });
 
   test("本文を読む前に失敗したストリームは閉じる（ファイル記述子を残さない）", async () => {
@@ -321,11 +323,13 @@ describe("downloadExtracted / uploadExtracted", () => {
           command instanceof PutObjectCommand &&
           command.input.Key === "jobs/J1/extracted/明細.csv"
         ) {
+          attempts++;
           throw new Error("SlowDown");
         }
         return fake.s3.send(command as never);
       },
     } as unknown as Pick<S3Client, "send">;
+    let attempts = 0;
     const dir = await tmp();
     await writeFile(
       join(dir, "明細.csv"),
@@ -337,6 +341,8 @@ describe("downloadExtracted / uploadExtracted", () => {
         dir,
       ),
     ).rejects.toThrow("SlowDown");
+    // 最初の 1 回と、送り直し 2 回
+    expect(attempts).toBe(3);
     expect(fake.puts).not.toContain("jobs/J1/extracted/_done.json");
   });
 });
