@@ -153,6 +153,26 @@ describe("runJob", () => {
     );
   });
 
+  test("警告だけのファイル（旧形式を変換した注意など）は、失敗に数えず結果を保存する", async () => {
+    // 旧形式やテキストの無い PDF には必ず警告が付く。警告で保存を止めると、そうしたジョブは毎回前処理をやり直す
+    const d = deps({
+      preprocess: vi.fn(async () => [
+        {
+          name: "古い.doc",
+          kind: "docx" as const,
+          outputs: [],
+          warnings: ["旧形式のため LibreOffice で docx に変換して読みました"],
+        },
+      ]),
+    });
+    await runJob(d, request);
+    expect(d.uploadExtracted).toHaveBeenCalledWith("01JOB");
+    expect(d.putReport).toHaveBeenCalledWith(
+      "01JOB",
+      expect.objectContaining({ savedExtracted: true }),
+    );
+  });
+
   test("未対応の形式は、やり直しても結果が変わらないので、失敗に数えず結果を保存する", async () => {
     const d = deps({
       preprocess: vi.fn(async () => [
