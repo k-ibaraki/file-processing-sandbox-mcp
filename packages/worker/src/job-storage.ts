@@ -1,7 +1,7 @@
 // ジョブのファイル（S3）の取得と保存。入力・前処理の結果・回答・報告。
 
-import { createWriteStream } from "node:fs";
-import { mkdir, readdir, readFile } from "node:fs/promises";
+import { createReadStream, createWriteStream } from "node:fs";
+import { mkdir, readdir, stat } from "node:fs/promises";
 import { basename, dirname, join, relative, resolve, sep } from "node:path";
 import type { Readable } from "node:stream";
 import { pipeline } from "node:stream/promises";
@@ -132,11 +132,14 @@ export function createJobStorage(s3: Pick<S3Client, "send">, bucket: string) {
       const keys = jobKeys(jobId);
       const files = await listFiles(dir);
       await inParallel(files, async (file) => {
+        // downloadTo と同じく、数百 MB の CSV などをメモリに載せない。ストリームで送るには長さを伝える必要がある
+        const { size } = await stat(file);
         await s3.send(
           new PutObjectCommand({
             Bucket: bucket,
             Key: `${keys.extracted}${relative(dir, file).split(sep).join("/")}`,
-            Body: await readFile(file),
+            Body: createReadStream(file),
+            ContentLength: size,
           }),
         );
       });

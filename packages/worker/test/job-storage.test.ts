@@ -17,6 +17,8 @@ import { createJobStorage, inParallel, localPath } from "../src/job-storage";
 function fakeS3(initial: Record<string, string> = {}) {
   const objects = new Map(Object.entries(initial));
   const puts: string[] = [];
+  /** PutObject の本文の渡し方（ストリームか、長さをいくつと伝えたか） */
+  const bodies = new Map<string, { stream: boolean; length?: number }>();
   const send = async (command: unknown) => {
     if (command instanceof ListObjectsV2Command) {
       const { Prefix = "", ContinuationToken } = command.input;
@@ -46,12 +48,29 @@ function fakeS3(initial: Record<string, string> = {}) {
     if (command instanceof PutObjectCommand) {
       const key = command.input.Key ?? "";
       puts.push(key);
-      objects.set(key, String(command.input.Body));
+      const body = command.input.Body;
+      const isStream = body instanceof Readable;
+      bodies.set(key, {
+        stream: isStream,
+        length: command.input.ContentLength,
+      });
+      if (isStream) {
+        const chunks: Buffer[] = [];
+        for await (const chunk of body) chunks.push(Buffer.from(chunk));
+        objects.set(key, Buffer.concat(chunks).toString("utf8"));
+      } else {
+        objects.set(key, String(body));
+      }
       return {};
     }
     throw new Error(`想定外のコマンド: ${String(command)}`);
   };
-  return { objects, puts, s3: { send } as unknown as Pick<S3Client, "send"> };
+  return {
+    objects,
+    puts,
+    bodies,
+    s3: { send } as unknown as Pick<S3Client, "send">,
+  };
 }
 
 const tmp = () => mkdtemp(join(tmpdir(), "storage-"));
@@ -175,6 +194,19 @@ describe("downloadExtracted / uploadExtracted", () => {
     ).toMatchObject({
       files: 2,
     });
+  });
+
+  test("ファイルはメモリに載せずにストリームで送り、大きさを ContentLength で伝える", async () => {
+    // 数百 MB の CSV を 8 並列で読み込んで、メモリを使い切らないため
+    const { s3, bodies, objects } = fakeS3();
+    const dir = await tmp();
+    await writeFile(join(dir, "明細.csv"), "一ページ目");
+    await createJobStorage(s3, "bucket").uploadExtracted("J1", dir);
+    expect(bodies.get("jobs/J1/extracted/明細.csv")).toEqual({
+      stream: true,
+      length: Buffer.byteLength("一ページ目"),
+    });
+    expect(objects.get("jobs/J1/extracted/明細.csv")).toBe("一ページ目");
   });
 });
 
