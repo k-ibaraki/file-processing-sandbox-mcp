@@ -1,4 +1,11 @@
-import { mkdir, mkdtemp, readdir, readFile, writeFile } from "node:fs/promises";
+import {
+  mkdir,
+  mkdtemp,
+  readdir,
+  readFile,
+  rm,
+  writeFile,
+} from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Readable } from "node:stream";
@@ -10,7 +17,7 @@ import {
   PutObjectCommand,
   type S3Client,
 } from "@aws-sdk/client-s3";
-import { describe, expect, test } from "vitest";
+import { afterAll, describe, expect, test } from "vitest";
 import {
   createJobStorage,
   inParallel,
@@ -78,7 +85,18 @@ function fakeS3(initial: Record<string, string> = {}) {
   };
 }
 
-const tmp = () => mkdtemp(join(tmpdir(), "storage-"));
+/** テストで作った一時ディレクトリ。16MB を超えるファイルを書くので、最後に消す */
+const tmpDirs: string[] = [];
+const tmp = async () => {
+  const dir = await mkdtemp(join(tmpdir(), "storage-"));
+  tmpDirs.push(dir);
+  return dir;
+};
+afterAll(async () => {
+  await Promise.all(
+    tmpDirs.map((dir) => rm(dir, { recursive: true, force: true })),
+  );
+});
 const noWait = async () => {};
 
 describe("localPath", () => {
