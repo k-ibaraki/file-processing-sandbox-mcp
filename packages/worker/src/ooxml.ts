@@ -71,12 +71,12 @@ function readParts(data: Uint8Array, wanted: (name: string) => boolean): Parts {
   const files = unzipSync(data, {
     filter: (file) => {
       if (!wanted(file.name)) return false;
-      if (file.originalSize > MAX_PART_BYTES) {
-        throw new Error(
-          `${file.name} が大きすぎます（${file.originalSize} バイト）`,
-        );
+      // 展開するときに確保する大きさ。fflate は無圧縮の部品を、展開後のサイズの申告を見ずに圧縮後のサイズの分だけ取り出す
+      const bytes = file.compression === 0 ? file.size : file.originalSize;
+      if (bytes > MAX_PART_BYTES) {
+        throw new Error(`${file.name} が大きすぎます（${bytes} バイト）`);
       }
-      total += file.originalSize;
+      total += bytes;
       if (total > MAX_TOTAL_BYTES) {
         throw new Error(`展開後の合計が大きすぎます（${total} バイト以上）`);
       }

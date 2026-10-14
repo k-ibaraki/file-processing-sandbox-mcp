@@ -143,6 +143,29 @@ describe("extractDocx", () => {
     expect(() => extractDocx(data)).toThrow("合計");
   });
 
+  test("無圧縮の部品は、申告された展開後のサイズではなく実際に取り出す大きさで数える", () => {
+    // fflate は無圧縮の部品を、展開後のサイズの申告を見ずに圧縮後のサイズの分だけ取り出す。申告を 0 にしても上限を逃れられないようにする
+    const data = zipSync(
+      {
+        "word/document.xml": strToU8(
+          `<?xml version="1.0"?><w:document ${W}><w:body><w:p>${run("x")}</w:p></w:body></w:document>`,
+        ),
+        "word/styles.xml": strToU8("<w:styles/>"),
+        "word/comments.xml": strToU8("<w:comments/>"),
+      },
+      { level: 0 },
+    );
+    // 中央ディレクトリの「圧縮後のサイズ」を 200MB、「展開後のサイズ」を 0 に書き換える
+    const view = new DataView(data.buffer, data.byteOffset, data.byteLength);
+    for (let i = 0; i + 4 <= data.length; i++) {
+      if (view.getUint32(i, true) === 0x02014b50) {
+        view.setUint32(i + 20, 200 * 1024 * 1024, true);
+        view.setUint32(i + 24, 0, true);
+      }
+    }
+    expect(() => extractDocx(data)).toThrow("合計");
+  });
+
   test("本文が無いファイルは拒否する", () => {
     expect(() => extractDocx(zip({ "x.xml": "<x/>" }))).toThrow(
       "word/document.xml",
