@@ -23,7 +23,7 @@ const TRANSFER_CONCURRENCY = 8;
  * 小さいファイルをメモリに読んで送るのは、ストリームの本文は SDK が送り直さないため
  */
 export const MAX_BUFFERED_BYTES = 16 * 1024 * 1024;
-/** ストリームで送るファイルを、失敗したときに送る回数の上限 */
+/** ストリームで送るファイルを送る回数の上限（最初の 1 回を含む。送り直しは 2 回まで） */
 const STREAM_ATTEMPTS = 3;
 
 export async function inParallel<T>(

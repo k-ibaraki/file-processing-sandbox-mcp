@@ -71,7 +71,8 @@ function readParts(data: Uint8Array, wanted: (name: string) => boolean): Parts {
   const files = unzipSync(data, {
     filter: (file) => {
       if (!wanted(file.name)) return false;
-      // 展開するときに確保する大きさ。fflate は無圧縮の部品を、展開後のサイズの申告を見ずに圧縮後のサイズの分だけ取り出す
+      // 展開するときに確保しうる大きさの上限。fflate は無圧縮の部品を、展開後のサイズの申告を見ずに、申告された圧縮後のサイズの分
+      // （入力の末尾までに切り詰める）だけ取り出す
       const bytes = file.compression === 0 ? file.size : file.originalSize;
       if (bytes > MAX_PART_BYTES) {
         throw new Error(`${file.name} が大きすぎます（${bytes} バイト）`);
