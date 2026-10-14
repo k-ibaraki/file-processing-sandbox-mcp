@@ -59,8 +59,9 @@ export function createWorker(stack: cdk.Stack, props: WorkerProps) {
     "MicroVM execution role (used only by the worker code)",
   );
   // ワーカーが使う操作だけを許す。前処理の外部ツールが乗っ取られても、ファイルや項目を消したり全件を調べたりできないようにする。
-  // 表は GSI を含めず表だけ。S3 の一覧には条件を付けない。S3 は無いキーの HeadObject に、条件なしの ListBucket が
-  // あるときだけ 404 を返す（hasExtracted が使う）。キーはすべて jobs/ の下なので、prefix の条件を付けても絞れない
+  // 表は GSI を含めず表だけ。S3 の一覧には条件を付けない。S3 は無いキーの HeadObject に、ListBucket の権限が
+  // あるときだけ 404 を返す（hasExtracted が使う）。prefix の条件付きでも 404 になるかは確かめておらず、
+  // キーはすべて jobs/ の下なので、条件を付けても絞れない
   executionRole.addToPolicy(
     new iam.PolicyStatement({
       actions: ["s3:GetObject", "s3:PutObject"],
