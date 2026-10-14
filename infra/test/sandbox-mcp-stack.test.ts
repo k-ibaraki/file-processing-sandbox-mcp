@@ -194,8 +194,9 @@ describe("MicroVM のワーカー", () => {
 
   test("実行ロールの S3 の読み書きは jobs/ の下に限り、DynamoDB は表だけで GSI には届かない", () => {
     const statements = policyStatements(/execution role/);
-    // 一覧に条件を付けない。S3 は無いキーの HeadObject に、ListBucket の権限があるときだけ 404 を返し、
-    // 条件付きでも 404 になるかは確かめていない（決定29）
+    // 一覧には条件を付けない（決定29）。理由は次の 2 つ。
+    // - 無いキーの HeadObject に S3 が 404 を返すのは、ListBucket の権限があるときだけ（無ければ 403）
+    // - 条件付きの権限でも 404 になるかは、確かめていない
     const list = statements.find((s) =>
       [s.Action].flat().includes("s3:ListBucket"),
     );
