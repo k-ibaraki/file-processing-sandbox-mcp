@@ -11,7 +11,12 @@ import {
   type S3Client,
 } from "@aws-sdk/client-s3";
 import { describe, expect, test } from "vitest";
-import { createJobStorage, inParallel, localPath } from "../src/job-storage";
+import {
+  createJobStorage,
+  inParallel,
+  localPath,
+  MAX_BUFFERED_BYTES,
+} from "../src/job-storage";
 
 /** メモリ上の S3 の偽物。一覧は 2 件ずつのページで返す */
 function fakeS3(initial: Record<string, string> = {}) {
@@ -196,17 +201,76 @@ describe("downloadExtracted / uploadExtracted", () => {
     });
   });
 
-  test("ファイルはメモリに載せずにストリームで送り、大きさを ContentLength で伝える", async () => {
+  test("小さいファイルはメモリに読んで送る（失敗しても SDK が送り直せる）", async () => {
+    const { s3, bodies } = fakeS3();
+    const dir = await tmp();
+    await writeFile(join(dir, "001.txt"), "一ページ目");
+    await createJobStorage(s3, "bucket").uploadExtracted("J1", dir);
+    expect(bodies.get("jobs/J1/extracted/001.txt")?.stream).toBe(false);
+  });
+
+  test("大きいファイルはメモリに載せずにストリームで送り、大きさを ContentLength で伝える", async () => {
     // 数百 MB の CSV を 8 並列で読み込んで、メモリを使い切らないため
     const { s3, bodies, objects } = fakeS3();
     const dir = await tmp();
-    await writeFile(join(dir, "明細.csv"), "一ページ目");
+    const size = MAX_BUFFERED_BYTES + 1;
+    await writeFile(join(dir, "明細.csv"), Buffer.alloc(size, "a"));
     await createJobStorage(s3, "bucket").uploadExtracted("J1", dir);
     expect(bodies.get("jobs/J1/extracted/明細.csv")).toEqual({
       stream: true,
-      length: Buffer.byteLength("一ページ目"),
+      length: size,
     });
-    expect(objects.get("jobs/J1/extracted/明細.csv")).toBe("一ページ目");
+    expect(objects.get("jobs/J1/extracted/明細.csv")).toHaveLength(size);
+  });
+
+  test("ストリームで送るファイルは SDK が送り直さないので、失敗したらストリームを作り直して送り直す", async () => {
+    const fake = fakeS3();
+    let failures = 2;
+    const s3 = {
+      send: async (command: unknown) => {
+        if (
+          command instanceof PutObjectCommand &&
+          command.input.Key === "jobs/J1/extracted/明細.csv" &&
+          failures-- > 0
+        ) {
+          throw new Error("SlowDown");
+        }
+        return fake.s3.send(command as never);
+      },
+    } as unknown as Pick<S3Client, "send">;
+    const dir = await tmp();
+    await writeFile(
+      join(dir, "明細.csv"),
+      Buffer.alloc(MAX_BUFFERED_BYTES + 1),
+    );
+    await createJobStorage(s3, "bucket").uploadExtracted("J1", dir);
+    expect(fake.objects.get("jobs/J1/extracted/明細.csv")).toHaveLength(
+      MAX_BUFFERED_BYTES + 1,
+    );
+  });
+
+  test("ストリームで送るファイルが決まった回数失敗したら、印を置かずに失敗する", async () => {
+    const fake = fakeS3();
+    const s3 = {
+      send: async (command: unknown) => {
+        if (
+          command instanceof PutObjectCommand &&
+          command.input.Key === "jobs/J1/extracted/明細.csv"
+        ) {
+          throw new Error("SlowDown");
+        }
+        return fake.s3.send(command as never);
+      },
+    } as unknown as Pick<S3Client, "send">;
+    const dir = await tmp();
+    await writeFile(
+      join(dir, "明細.csv"),
+      Buffer.alloc(MAX_BUFFERED_BYTES + 1),
+    );
+    await expect(
+      createJobStorage(s3, "bucket").uploadExtracted("J1", dir),
+    ).rejects.toThrow("SlowDown");
+    expect(fake.puts).not.toContain("jobs/J1/extracted/_done.json");
   });
 });
 

@@ -1,7 +1,7 @@
 // ジョブのファイル（S3）の取得と保存。入力・前処理の結果・回答・報告。
 
 import { createReadStream, createWriteStream } from "node:fs";
-import { mkdir, readdir, stat } from "node:fs/promises";
+import { mkdir, readdir, readFile, stat } from "node:fs/promises";
 import { basename, dirname, join, relative, resolve, sep } from "node:path";
 import type { Readable } from "node:stream";
 import { pipeline } from "node:stream/promises";
@@ -17,6 +17,13 @@ import { jobKeys } from "@sandbox-mcp/shared";
 
 /** S3 との転送を同時に走らせる数 */
 const TRANSFER_CONCURRENCY = 8;
+/**
+ * これより大きいファイルは、メモリに載せずにストリームで送る（同時に 8 件読んでも 128MB に収まる）。
+ * 小さいファイルをメモリに読んで送るのは、ストリームの本文は SDK が送り直さないため
+ */
+export const MAX_BUFFERED_BYTES = 16 * 1024 * 1024;
+/** ストリームで送るファイルを、失敗したときに送る回数の上限 */
+const STREAM_ATTEMPTS = 3;
 
 export async function inParallel<T>(
   items: T[],
@@ -132,16 +139,34 @@ export function createJobStorage(s3: Pick<S3Client, "send">, bucket: string) {
       const keys = jobKeys(jobId);
       const files = await listFiles(dir);
       await inParallel(files, async (file) => {
-        // downloadTo と同じく、数百 MB の CSV などをメモリに載せない。ストリームで送るには長さを伝える必要がある
+        const key = `${keys.extracted}${relative(dir, file).split(sep).join("/")}`;
         const { size } = await stat(file);
-        await s3.send(
-          new PutObjectCommand({
-            Bucket: bucket,
-            Key: `${keys.extracted}${relative(dir, file).split(sep).join("/")}`,
-            Body: createReadStream(file),
-            ContentLength: size,
-          }),
-        );
+        if (size <= MAX_BUFFERED_BYTES) {
+          await s3.send(
+            new PutObjectCommand({
+              Bucket: bucket,
+              Key: key,
+              Body: await readFile(file),
+            }),
+          );
+          return;
+        }
+        // downloadTo と同じく、数百 MB の CSV などをメモリに載せない。SDK は送り直さないので、ストリームを作り直して送り直す
+        for (let attempt = 1; ; attempt++) {
+          try {
+            await s3.send(
+              new PutObjectCommand({
+                Bucket: bucket,
+                Key: key,
+                Body: createReadStream(file),
+                ContentLength: size,
+              }),
+            );
+            return;
+          } catch (e) {
+            if (attempt >= STREAM_ATTEMPTS) throw e;
+          }
+        }
       });
       // すべて置けてから印を置く。途中で止まった結果を再実行で使わない
       await put(
