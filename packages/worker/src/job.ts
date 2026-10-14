@@ -93,9 +93,11 @@ async function processJob(
       deps.preprocess(onProgress),
     );
     report.files = files;
-    // 失敗したファイルがあれば保存しない。保存すると _done.json の印で、一時的な失敗（タイムアウトなど）が
-    // 以後の再実行にも使い回される。未対応の形式はやり直しても結果が変わらないので、失敗に数えない
-    const complete = files.every((f) => !f.error || f.kind === "unsupported");
+    // 失敗したファイルや、一部を作れなかったファイルがあれば保存しない。保存すると _done.json の印で、一時的な失敗
+    // （タイムアウトなど）が以後の再実行にも使い回される。未対応の形式はやり直しても結果が変わらないので、失敗に数えない（決定28）
+    const complete = files.every(
+      (f) => (!f.error || f.kind === "unsupported") && !f.incomplete,
+    );
     report.savedExtracted = complete;
     if (complete) {
       reporter.add("前処理の結果を保存中");

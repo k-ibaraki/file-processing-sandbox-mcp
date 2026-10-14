@@ -28,6 +28,8 @@ export interface FileSummary {
   warnings: string[];
   /** ファイル全体の前処理に失敗したときの理由 */
   error?: string;
+  /** 一部の出力（docx のページ画像など）を作れなかった。理由は warnings にある。やり直せば作れることがある */
+  incomplete?: boolean;
   /** このファイルの前処理にかかった時間（実測の報告用。目次には書かない） */
   durationMs?: number;
 }
@@ -267,6 +269,7 @@ async function processDocx(ctx: Context, input: string): Promise<void> {
     );
   } catch (error) {
     ctx.summary.warnings.push(`ページ画像を作れません: ${message(error)}`);
+    ctx.summary.incomplete = true;
   }
 }
 
@@ -309,6 +312,7 @@ async function processPptx(ctx: Context, input: string): Promise<void> {
     }
   } catch (error) {
     ctx.summary.warnings.push(`スライド画像を作れません: ${message(error)}`);
+    ctx.summary.incomplete = true;
   }
 }
 

@@ -81,9 +81,15 @@ describe("formatExif", () => {
 });
 
 /** 外部コマンドの代わりに、出力ファイルだけを作る偽物。呼ばれたコマンドを記録する */
-function fakeRun(calls: string[][], csvNames: string[]): RunCommand {
+function fakeRun(
+  calls: string[][],
+  csvNames: string[],
+  /** 失敗させるコマンド（タイムアウトなどを模す） */
+  failing: string[] = [],
+): RunCommand {
   return async (command, args) => {
     calls.push([command, ...args]);
+    if (failing.includes(command)) throw new Error(`${command} が失敗しました`);
     const last = args.at(-1) ?? "";
     switch (command) {
       case "soffice": {
@@ -127,6 +133,7 @@ async function setup(
   files: Record<string, Uint8Array | string>,
   /** LibreOffice が書き出す CSV のシート名部分 */
   csvNames: string[] = ["売上"],
+  failing: string[] = [],
 ) {
   const root = await mkdtemp(join(tmpdir(), "preprocess-"));
   const inputDir = join(root, "input");
@@ -138,7 +145,7 @@ async function setup(
   const progress: string[] = [];
   const extractedDir = join(root, "extracted");
   const summaries = await preprocessAll({
-    run: fakeRun(calls, csvNames),
+    run: fakeRun(calls, csvNames, failing),
     inputDir,
     extractedDir,
     tmpDir: join(root, "tmp"),
@@ -297,6 +304,32 @@ describe("preprocessAll", () => {
       "前処理 1/3件: a.dwg",
       "前処理 2/3件: b.docx",
       "前処理 3/3件: c.txt",
+    ]);
+  });
+
+  test("docx・pptx の画像を作れなかったときは、ファイルは失敗にせず、一部を作れなかった印を付ける", async () => {
+    // 印があれば結果を保存せず、再実行で作り直す（決定28）。LibreOffice のタイムアウトのような一時的な失敗を使い回さないため
+    const docx = zipSync({
+      "word/document.xml": strToU8(
+        '<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body><w:p><w:r><w:t>本文</w:t></w:r></w:p></w:body></w:document>',
+      ),
+    });
+    const pptx = zipSync({
+      "ppt/presentation.xml": strToU8(
+        '<p:presentation xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main"/>',
+      ),
+    });
+    const { summaries } = await setup(
+      { "a.docx": docx, "b.pptx": pptx, "c.txt": "メモ" },
+      [],
+      ["soffice"],
+    );
+    expect(
+      summaries.map((s) => [s.name, s.error, s.incomplete ?? false]),
+    ).toEqual([
+      ["a.docx", undefined, true],
+      ["b.pptx", undefined, true],
+      ["c.txt", undefined, false],
     ]);
   });
 

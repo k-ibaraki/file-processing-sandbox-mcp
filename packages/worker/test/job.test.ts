@@ -117,6 +117,23 @@ describe("runJob", () => {
     expect(d.setStatus).toHaveBeenLastCalledWith("01JOB", "SUCCEEDED");
   });
 
+  test("一部を作れなかったファイル（docx のページ画像など）があっても、結果を保存しない", async () => {
+    const d = deps({
+      preprocess: vi.fn(async () => [
+        {
+          name: "a.docx",
+          kind: "docx" as const,
+          outputs: [],
+          warnings: ["ページ画像を作れません"],
+          incomplete: true,
+        },
+      ]),
+    });
+    await runJob(d, request);
+    expect(d.uploadExtracted).not.toHaveBeenCalled();
+    expect(d.setStatus).toHaveBeenLastCalledWith("01JOB", "SUCCEEDED");
+  });
+
   test("未対応の形式は、やり直しても結果が変わらないので、失敗に数えず結果を保存する", async () => {
     const d = deps({
       preprocess: vi.fn(async () => [
