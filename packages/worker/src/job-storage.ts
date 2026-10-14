@@ -5,6 +5,7 @@ import { mkdir, readdir, readFile, stat } from "node:fs/promises";
 import { basename, dirname, join, relative, resolve, sep } from "node:path";
 import type { Readable } from "node:stream";
 import { pipeline } from "node:stream/promises";
+import { setTimeout } from "node:timers/promises";
 import {
   GetObjectCommand,
   HeadObjectCommand,
@@ -58,7 +59,16 @@ async function listFiles(dir: string): Promise<string[]> {
     .map((entry) => join(entry.parentPath, entry.name));
 }
 
-export function createJobStorage(s3: Pick<S3Client, "send">, bucket: string) {
+export interface JobStorageOptions {
+  /** ストリームで送り直す前に待つ時間の単位。n 回目の送り直しの前に n 倍待つ */
+  retryDelayMs?: number;
+}
+
+export function createJobStorage(
+  s3: Pick<S3Client, "send">,
+  bucket: string,
+  { retryDelayMs = 1000 }: JobStorageOptions = {},
+) {
   /** prefix の下のキーを、最後のページまで集める（1 回の一覧は 1,000 件まで） */
   async function listKeys(prefix: string): Promise<string[]> {
     const keys: string[] = [];
@@ -165,6 +175,8 @@ export function createJobStorage(s3: Pick<S3Client, "send">, bucket: string) {
             return;
           } catch (e) {
             if (attempt >= STREAM_ATTEMPTS) throw e;
+            // S3 が混雑して返す 503 は、すぐ送り直すと同じ応答が返りやすい
+            await setTimeout(retryDelayMs * attempt);
           }
         }
       });

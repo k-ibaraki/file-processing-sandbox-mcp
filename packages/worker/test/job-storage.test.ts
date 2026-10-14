@@ -243,10 +243,43 @@ describe("downloadExtracted / uploadExtracted", () => {
       join(dir, "明細.csv"),
       Buffer.alloc(MAX_BUFFERED_BYTES + 1),
     );
-    await createJobStorage(s3, "bucket").uploadExtracted("J1", dir);
+    await createJobStorage(s3, "bucket", { retryDelayMs: 1 }).uploadExtracted(
+      "J1",
+      dir,
+    );
     expect(fake.objects.get("jobs/J1/extracted/明細.csv")).toHaveLength(
       MAX_BUFFERED_BYTES + 1,
     );
+  });
+
+  test("ストリームで送り直す前に、回を重ねるごとに長く待つ", async () => {
+    // S3 が混雑して返す 503 は、すぐ送り直すと同じ応答が返りやすい
+    const fake = fakeS3();
+    const attempts: number[] = [];
+    const s3 = {
+      send: async (command: unknown) => {
+        if (
+          command instanceof PutObjectCommand &&
+          command.input.Key === "jobs/J1/extracted/明細.csv"
+        ) {
+          attempts.push(Date.now());
+          if (attempts.length < 3) throw new Error("SlowDown");
+        }
+        return fake.s3.send(command as never);
+      },
+    } as unknown as Pick<S3Client, "send">;
+    const dir = await tmp();
+    await writeFile(
+      join(dir, "明細.csv"),
+      Buffer.alloc(MAX_BUFFERED_BYTES + 1),
+    );
+    await createJobStorage(s3, "bucket", { retryDelayMs: 50 }).uploadExtracted(
+      "J1",
+      dir,
+    );
+    const [first = 0, second = 0, third = 0] = attempts;
+    expect(second - first).toBeGreaterThanOrEqual(50);
+    expect(third - second).toBeGreaterThanOrEqual(100);
   });
 
   test("ストリームで送るファイルが決まった回数失敗したら、印を置かずに失敗する", async () => {
@@ -268,7 +301,10 @@ describe("downloadExtracted / uploadExtracted", () => {
       Buffer.alloc(MAX_BUFFERED_BYTES + 1),
     );
     await expect(
-      createJobStorage(s3, "bucket").uploadExtracted("J1", dir),
+      createJobStorage(s3, "bucket", { retryDelayMs: 1 }).uploadExtracted(
+        "J1",
+        dir,
+      ),
     ).rejects.toThrow("SlowDown");
     expect(fake.puts).not.toContain("jobs/J1/extracted/_done.json");
   });
