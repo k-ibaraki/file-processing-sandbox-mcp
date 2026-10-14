@@ -89,11 +89,18 @@ async function processJob(
   } else {
     reporter.add("入力ファイルを取得中");
     await timed(timings, "inputs", () => deps.downloadInputs(jobId));
-    report.files = await timed(timings, "preprocess", () =>
+    const files = await timed(timings, "preprocess", () =>
       deps.preprocess(onProgress),
     );
-    reporter.add("前処理の結果を保存中");
-    await deps.uploadExtracted(jobId);
+    report.files = files;
+    // 失敗したファイルがあれば保存しない。保存すると _done.json の印で、一時的な失敗（タイムアウトなど）が
+    // 以後の再実行にも使い回される。未対応の形式はやり直しても結果が変わらないので、失敗に数えない
+    const complete = files.every((f) => !f.error || f.kind === "unsupported");
+    report.savedExtracted = complete;
+    if (complete) {
+      reporter.add("前処理の結果を保存中");
+      await deps.uploadExtracted(jobId);
+    }
   }
   await deps.clearInputs();
 

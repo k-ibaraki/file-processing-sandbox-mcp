@@ -98,6 +98,60 @@ describe("runJob", () => {
     expect(d.setStatus).toHaveBeenLastCalledWith("01JOB", "SUCCEEDED");
   });
 
+  test("前処理に失敗したファイルがあれば結果を保存せず、再実行で前処理をやり直せるようにする", async () => {
+    // 保存すると _done.json の印で、一時的な失敗（タイムアウトなど）が以後の再実行にも使い回されるため
+    const d = deps({
+      preprocess: vi.fn(async () => [
+        {
+          name: "a.pdf",
+          kind: "pdf" as const,
+          outputs: [],
+          warnings: [],
+          error: "pdftotext が失敗しました",
+        },
+      ]),
+    });
+    await runJob(d, request);
+    expect(d.uploadExtracted).not.toHaveBeenCalled();
+    expect(d.runAgent).toHaveBeenCalled();
+    expect(d.setStatus).toHaveBeenLastCalledWith("01JOB", "SUCCEEDED");
+  });
+
+  test("未対応の形式は、やり直しても結果が変わらないので、失敗に数えず結果を保存する", async () => {
+    const d = deps({
+      preprocess: vi.fn(async () => [
+        {
+          name: "a.exe",
+          kind: "unsupported" as const,
+          outputs: [],
+          warnings: [],
+          error: "対応していない形式です",
+        },
+      ]),
+    });
+    await runJob(d, request);
+    expect(d.uploadExtracted).toHaveBeenCalledWith("01JOB");
+  });
+
+  test("完了の記録に失敗したときも、失敗の進捗を書く", async () => {
+    // 完了の前に進捗を止めているが、その後の失敗も進捗に残す
+    const d = deps({
+      setStatus: vi
+        .fn()
+        .mockRejectedValueOnce(new Error("DynamoDB に届かない"))
+        .mockResolvedValue(undefined),
+    });
+    await runJob(d, request);
+    expect(messages(d.heartbeats.at(-1)).at(-1)).toBe(
+      "失敗しました: DynamoDB に届かない",
+    );
+    expect(d.setStatus).toHaveBeenLastCalledWith(
+      "01JOB",
+      "FAILED",
+      "DynamoDB に届かない",
+    );
+  });
+
   test("進捗をハートビートとして書き、完了を記録する前に最後の進捗を書く", async () => {
     const d = deps();
     await runJob(d, request);
