@@ -143,7 +143,7 @@ MicroVMの異常終了や自己終了の失敗に備える。EventBridge Schedul
 - ワーカー本体：ライフサイクルフック用サーバーとジョブ実行部（Node.js、Claude Agent SDKのTypeScript版）
 - 前処理用：LibreOffice（headless。AL2023のリポジトリに無いので、The Document Foundationのaarch64版RPMを固定版で入れ、公開されているSHA-256と照らす。決定22）、poppler-utils、ImageMagick、libheif-tools（heif-convert）、日本語フォント（Noto Sans / Serif CJK JP）。libvipsとexiftoolはAL2023のリポジトリに無いので使わない（決定21）
 - エージェントがサンドボックス内で使う道具：Python 3.12のvenv（`/opt/py`）にpandas、openpyxl、DuckDB（大きな表の集計用）を固定版で入れる。ワーカーがエージェントのPATHの先頭に置く（決定24）
-- LibreOfficeのプロファイル（`/opt/libreoffice-profile`）は、イメージの作成時に一度変換を走らせて作っておく。MicroVMでは初回の起動が遅いため（実測：B1・W1）
+- LibreOfficeのプロファイル（`/opt/libreoffice-profile`）は、イメージの作成時に一度変換を走らせて作っておく。MicroVMでは最初にLibreOfficeを使うファイルの前処理が後のファイルより大幅に遅く、初回の起動にかかる分と見ているため（推測。作っておくと最初のpptxは39.2秒から28.4秒に縮んだ。実測：B1・W1）
 - イメージにはUTF-8のロケールが設定されていない。前処理のコマンドは `LANG=C.UTF-8` で動かす（無いとLibreOfficeが日本語のシート名を `???` にする）
 - Bashサンドボックスの依存：bubblewrap、socat（どちらもAL2023のdnfで入る）。イメージのOS権限は既定のまま（`additionalOsCapabilities` は付けない。決定13）
 - Agent Skillsは置かない。読み方の手引きはシステムプロンプトに短く書く

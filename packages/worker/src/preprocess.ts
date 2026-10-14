@@ -152,8 +152,9 @@ async function move(from: string, to: string): Promise<void> {
 }
 
 /**
- * LibreOffice のプロファイル（利用者ごとの設定）の場所。MicroVM では初回の起動に時間がかかったため（実測 B1）、
- * イメージの作成時に一度変換を走らせてここに作っておく（Dockerfile と揃える）
+ * LibreOffice のプロファイル（利用者ごとの設定）の場所。MicroVM では、最初に LibreOffice を使うファイルの前処理が
+ * 後のファイルより大幅に遅かった（実測 B1）。初回の起動にかかる分を減らすため、イメージの作成時に一度変換を走らせて
+ * ここに作っておく（Dockerfile と揃える）
  */
 export const LIBREOFFICE_PROFILE_DIR = "/opt/libreoffice-profile";
 const LIBREOFFICE_PROFILE = `-env:UserInstallation=file://${LIBREOFFICE_PROFILE_DIR}`;

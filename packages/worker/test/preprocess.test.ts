@@ -7,6 +7,7 @@ import {
   csvShape,
   detectKind,
   formatExif,
+  indexMarkdown,
   pageName,
   preprocessAll,
   type RunCommand,
@@ -308,7 +309,10 @@ describe("preprocessAll", () => {
       expect(summary.durationMs).toEqual(expect.any(Number));
       expect(summary.durationMs).toBeGreaterThanOrEqual(0);
     }
-    expect(index).not.toContain("durationMs");
+    // 時間を除いた要約から作った目次と同じになる（目次に時間が混ざらない）
+    expect(index).toBe(
+      indexMarkdown(summaries.map(({ durationMs: _, ...rest }) => rest)),
+    );
   });
 
   test("一時ディレクトリは処理の後に消す", async () => {

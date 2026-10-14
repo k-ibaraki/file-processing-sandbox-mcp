@@ -26,7 +26,8 @@ RUN cd /tmp \
   && rm -rf /tmp/lo.tar.gz /tmp/LibreOffice_* \
   && ln -s /opt/libreoffice*/program/soffice /usr/local/bin/soffice
 
-# LibreOffice のプロファイルを作っておく。MicroVM では初回の起動に 30 秒以上かかったため（実測）。
+# LibreOffice のプロファイルを作っておく。MicroVM では、最初に LibreOffice を使うファイルの前処理が後のファイルより
+# 大幅に遅く（実測）、初回の起動にかかる分を作成時に済ませるため。
 # 場所は前処理のコード（preprocess.ts の LIBREOFFICE_PROFILE_DIR）と揃える
 RUN mkdir -p /tmp/warm && printf 'warm-up\n' > /tmp/warm/warm.txt \
   && LANG=C.UTF-8 soffice --headless --norestore -env:UserInstallation=file:///opt/libreoffice-profile \
