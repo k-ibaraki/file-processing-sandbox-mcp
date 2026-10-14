@@ -83,6 +83,7 @@ export function createWorker(stack: cdk.Stack, props: WorkerProps) {
     }),
   );
   executionRole.addToPolicy(writeLogs);
+  // 終了はイメージ単位でしか絞れない。乗っ取られると、同じイメージで動く他のジョブの MicroVM も終了できる（決定29）
   executionRole.addToPolicy(
     new iam.PolicyStatement({
       actions: ["lambda:TerminateMicrovm"],
