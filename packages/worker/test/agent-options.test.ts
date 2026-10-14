@@ -110,6 +110,13 @@ describe("buildAgentOptions", () => {
     expect(prompt).toContain("ファイルへの書き出し");
   });
 
+  test("前処理に失敗したファイルは読めていないことを、回答で伝えさせる", () => {
+    // 前処理に失敗してもジョブは失敗にしないので、利用者が知る手段は回答だけ（決定28）
+    const prompt = String(buildAgentOptions(base).systemPrompt);
+    expect(prompt).toContain("前処理に失敗しました");
+    expect(prompt).toContain("読めなかった");
+  });
+
   test("Bash の書き方の指示に、実測していない形（tee）を拒否されると断定して書かない", () => {
     // 実測で拒否されたのは cat > ファイル だけ。tee は試していない
     const prompt = String(buildAgentOptions(base).systemPrompt);
