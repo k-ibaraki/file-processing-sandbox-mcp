@@ -128,7 +128,7 @@ describe("extractDocx", () => {
     expect(() => extractDocx(data)).toThrow("大きすぎます");
   });
 
-  test("部品は 1 つずつなら上限以内でも、展開後の合計が大きすぎれば、展開する前に拒否する", () => {
+  test("部品は 1 つずつなら上限以内でも、展開後の合計が大きすぎれば、上限を越える部品を展開する前に拒否する", () => {
     const data = docx(`<w:p>${run("x")}</w:p>`, {
       "word/styles.xml": "<w:styles/>",
       "word/comments.xml": "<w:comments/>",

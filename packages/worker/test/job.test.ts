@@ -294,6 +294,7 @@ describe("runJob", () => {
       "01JOB",
       expect.objectContaining({
         reusedExtracted: false,
+        savedExtracted: true,
         files: [expect.objectContaining({ name: "a.pdf" })],
         timingsMs: {
           inputs: expect.any(Number),

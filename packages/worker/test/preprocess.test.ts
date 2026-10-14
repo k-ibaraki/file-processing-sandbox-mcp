@@ -319,11 +319,15 @@ describe("preprocessAll", () => {
         '<p:presentation xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main"/>',
       ),
     });
-    const { summaries } = await setup(
-      { "a.docx": docx, "b.pptx": pptx, "c.txt": "メモ" },
-      [],
-      ["soffice"],
-    );
+    const files = { "a.docx": docx, "b.pptx": pptx, "c.txt": "メモ" };
+    // 画像を作れたときは印を付けない（付けると docx・pptx を含むジョブの結果を一度も保存しなくなる）
+    const succeeded = await setup(files);
+    expect(succeeded.summaries.map((s) => s.incomplete ?? false)).toEqual([
+      false,
+      false,
+      false,
+    ]);
+    const { summaries } = await setup(files, [], ["soffice"]);
     expect(
       summaries.map((s) => [s.name, s.error, s.incomplete ?? false]),
     ).toEqual([

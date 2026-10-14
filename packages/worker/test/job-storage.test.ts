@@ -233,7 +233,7 @@ describe("downloadExtracted / uploadExtracted", () => {
           command.input.Key === "jobs/J1/extracted/明細.csv" &&
           failures-- > 0
         ) {
-          // 実際の S3 と同じく、本文を読み終えてから失敗させる。読みかけのストリームを使い回すと、次の回で中身が欠ける
+          // 本文を読んだ後に失敗する場合を模す。読みかけのストリームを使い回すと、次の回で中身が欠ける
           for await (const _ of command.input.Body as Readable);
           throw new Error("SlowDown");
         }
