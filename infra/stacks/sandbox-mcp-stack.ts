@@ -17,7 +17,8 @@ export interface SandboxMcpStackProps extends cdk.StackProps {
 
 /**
  * S3・DynamoDB・前段 Lambda・掃除用 Lambda・MicroVM イメージをまとめるスタック。
- * いまはジョブのバケットと表、MicroVM のワーカーまで。前段 Lambda と掃除用 Lambda は実装ステップ 3 で足す（決定18）。
+ * いまはジョブのバケットと表、MicroVM のワーカーまで。前段 Lambda と掃除用 Lambda は、コードをステップ 3 で作り、
+ * このスタックへはステップ 4 で足す（決定18）。
  */
 export function createSandboxMcpStack(
   scope: Construct,

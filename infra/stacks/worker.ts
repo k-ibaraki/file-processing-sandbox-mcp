@@ -58,8 +58,27 @@ export function createWorker(stack: cdk.Stack, props: WorkerProps) {
     "WorkerExecutionRole",
     "MicroVM execution role (used only by the worker code)",
   );
-  bucket.grantReadWrite(executionRole, "jobs/*");
-  table.grantReadWriteData(executionRole);
+  // ワーカーが使う操作だけを許す。前処理の外部ツールが乗っ取られても、ファイルや項目を消したり全件を調べたりできないようにする。
+  // 表は GSI を含めず表だけ。S3 の一覧は jobs/ の下に限る
+  executionRole.addToPolicy(
+    new iam.PolicyStatement({
+      actions: ["s3:GetObject", "s3:PutObject"],
+      resources: [bucket.arnForObjects("jobs/*")],
+    }),
+  );
+  executionRole.addToPolicy(
+    new iam.PolicyStatement({
+      actions: ["s3:ListBucket"],
+      resources: [bucket.bucketArn],
+      conditions: { StringLike: { "s3:prefix": "jobs/*" } },
+    }),
+  );
+  executionRole.addToPolicy(
+    new iam.PolicyStatement({
+      actions: ["dynamodb:GetItem", "dynamodb:UpdateItem"],
+      resources: [table.tableArn],
+    }),
+  );
   executionRole.addToPolicy(writeLogs);
   executionRole.addToPolicy(
     new iam.PolicyStatement({

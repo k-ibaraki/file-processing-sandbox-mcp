@@ -15,7 +15,13 @@ beforeAll(() => {
   template = Template.fromStack(stack);
 });
 
-function policyActions(roleDescription: RegExp): string[] {
+interface Statement {
+  Action: string | string[];
+  Resource: unknown;
+  Condition?: unknown;
+}
+
+function policyStatements(roleDescription: RegExp): Statement[] {
   const [roleId] = Object.keys(
     template.findResources("AWS::IAM::Role", {
       Properties: {
@@ -26,11 +32,13 @@ function policyActions(roleDescription: RegExp): string[] {
   const policies = template.findResources("AWS::IAM::Policy", {
     Properties: { Roles: [{ Ref: roleId }] },
   });
-  return Object.values(policies).flatMap((policy) =>
-    policy.Properties.PolicyDocument.Statement.flatMap(
-      (s: { Action: string | string[] }) => [s.Action].flat(),
-    ),
+  return Object.values(policies).flatMap(
+    (policy) => policy.Properties.PolicyDocument.Statement as Statement[],
   );
+}
+
+function policyActions(roleDescription: RegExp): string[] {
+  return policyStatements(roleDescription).flatMap((s) => [s.Action].flat());
 }
 
 describe("ジョブのバケットと表", () => {
@@ -165,5 +173,38 @@ describe("MicroVM のワーカー", () => {
         "s3:PutObject",
       ]),
     );
+  });
+
+  test("実行ロールの S3 と DynamoDB の権限は、ワーカーが使う操作だけにする", () => {
+    // 前処理の外部ツールが乗っ取られても、他のジョブのファイルや項目を消せないようにするため（決定27）
+    const statements = policyStatements(/execution role/);
+    const actionsOf = (service: string) =>
+      new Set(
+        statements
+          .flatMap((s) => [s.Action].flat())
+          .filter((a) => a.startsWith(`${service}:`)),
+      );
+    expect(actionsOf("s3")).toEqual(
+      new Set(["s3:GetObject", "s3:PutObject", "s3:ListBucket"]),
+    );
+    expect(actionsOf("dynamodb")).toEqual(
+      new Set(["dynamodb:GetItem", "dynamodb:UpdateItem"]),
+    );
+  });
+
+  test("実行ロールの S3 の一覧は jobs/ の下に限り、DynamoDB は表だけで GSI には届かない", () => {
+    const statements = policyStatements(/execution role/);
+    const list = statements.find((s) =>
+      [s.Action].flat().includes("s3:ListBucket"),
+    );
+    expect(list?.Condition).toEqual({ StringLike: { "s3:prefix": "jobs/*" } });
+    const objects = statements.find((s) =>
+      [s.Action].flat().includes("s3:GetObject"),
+    );
+    expect(JSON.stringify(objects?.Resource)).toContain("/jobs/*");
+    const table = statements.find((s) =>
+      [s.Action].flat().includes("dynamodb:GetItem"),
+    );
+    expect(JSON.stringify(table?.Resource)).not.toContain("/index/");
   });
 });
