@@ -200,20 +200,33 @@ describe("MicroVM のワーカー", () => {
       [s.Action].flat().includes("s3:ListBucket"),
     );
     expect(list?.Condition).toBeUndefined();
-    // 操作を含む文をすべて見る。1 つだけ見ると、別の文で範囲を広げても気付けない
-    const having = (prefix: string) =>
-      statements.filter((s) =>
-        [s.Action].flat().some((a) => a.startsWith(prefix)),
-      );
-    const objectResources = having("s3:").flatMap((s) =>
-      [s.Action].flat().includes("s3:ListBucket") ? [] : [s.Resource].flat(),
+    // 操作と対象の組を、文ごとに完全に一致させて確かめる。一部だけ見ると、文をまとめたり別の文を足したりして広げても気付けない
+    const [bucketId] = Object.keys(template.findResources("AWS::S3::Bucket"));
+    const [tableId] = Object.keys(
+      template.findResources("AWS::DynamoDB::GlobalTable"),
     );
-    expect(objectResources.length).toBeGreaterThan(0);
-    for (const resource of objectResources) {
-      expect(JSON.stringify(resource)).toMatch(/"\/jobs\/\*"/);
-    }
-    for (const s of having("dynamodb:")) {
-      expect(JSON.stringify(s.Resource)).not.toContain("/index/");
-    }
+    const dataStatements = statements
+      .filter((s) =>
+        [s.Action]
+          .flat()
+          .some((a) => a.startsWith("s3:") || a.startsWith("dynamodb:")),
+      )
+      .map(({ Action, Resource }) => ({ Action, Resource }));
+    expect(dataStatements).toEqual([
+      {
+        Action: ["s3:GetObject", "s3:PutObject"],
+        Resource: {
+          "Fn::Join": ["", [{ "Fn::GetAtt": [bucketId, "Arn"] }, "/jobs/*"]],
+        },
+      },
+      {
+        Action: "s3:ListBucket",
+        Resource: { "Fn::GetAtt": [bucketId, "Arn"] },
+      },
+      {
+        Action: ["dynamodb:GetItem", "dynamodb:UpdateItem"],
+        Resource: { "Fn::GetAtt": [tableId, "Arn"] },
+      },
+    ]);
   });
 });
