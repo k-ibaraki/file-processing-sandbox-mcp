@@ -113,6 +113,10 @@ describe("runJob", () => {
     });
     await runJob(d, request);
     expect(d.uploadExtracted).not.toHaveBeenCalled();
+    expect(d.putReport).toHaveBeenCalledWith(
+      "01JOB",
+      expect.objectContaining({ savedExtracted: false }),
+    );
     expect(d.runAgent).toHaveBeenCalled();
     expect(d.setStatus).toHaveBeenLastCalledWith("01JOB", "SUCCEEDED");
   });
@@ -131,6 +135,10 @@ describe("runJob", () => {
     });
     await runJob(d, request);
     expect(d.uploadExtracted).not.toHaveBeenCalled();
+    expect(d.putReport).toHaveBeenCalledWith(
+      "01JOB",
+      expect.objectContaining({ savedExtracted: false }),
+    );
     expect(d.setStatus).toHaveBeenLastCalledWith("01JOB", "SUCCEEDED");
   });
 
