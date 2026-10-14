@@ -28,7 +28,7 @@ export function createSandboxMcpStack(
   const { parameters, ...stackProps } = props;
   const stack = new cdk.Stack(scope, id, stackProps);
 
-  // ファイルはそれぞれ作成から 1 日で消す。ジョブ表の項目は ttl でジョブの作成から 1 日を過ぎると消える
+  // ファイルはそれぞれ作成から 1 日で消す（期限は次の UTC 0 時に切り上がる）。ジョブ表の項目は ttl でジョブの作成から 1 日を過ぎると消える
   // （DynamoDB が消すまで数日かかることがある）。再実行で作ったファイルは項目より長く残りうる
   const bucket = new s3.Bucket(stack, "JobsBucket", {
     blockPublicAccess: s3.BlockPublicAccess.BLOCK_ALL,
