@@ -95,4 +95,32 @@ describe("buildAgentOptions", () => {
     expect(prompt).toContain("/work");
     expect(prompt).toContain("データ");
   });
+
+  test("システムプロンプトは前処理の結果の目次から読ませ、画像はテキストで足りないときだけ見させる", () => {
+    const prompt = String(buildAgentOptions(base).systemPrompt);
+    expect(prompt).toContain("/work/extracted/index.md");
+    expect(prompt).toContain("テキストで足りない");
+    expect(prompt).toContain("DuckDB");
+  });
+
+  test("Bash の書き方は実測で通った形を示し、拒否される形（ファイルへの書き出し）を避けさせる", () => {
+    const prompt = String(buildAgentOptions(base).systemPrompt);
+    // 実測（B1・M2）で、標準入力から渡す形は通り、cat > ファイル の形は拒否された
+    expect(prompt).toContain("python3 - <<'EOF'");
+    expect(prompt).toContain("ファイルへの書き出し");
+  });
+
+  test("前処理に失敗したファイルは読めていないことを、回答で伝えさせる", () => {
+    // 前処理に失敗してもジョブは失敗にしないので、利用者が知る手段は回答だけ（決定28）
+    const prompt = String(buildAgentOptions(base).systemPrompt);
+    expect(prompt).toContain("前処理に失敗しました");
+    expect(prompt).toContain("読めなかった");
+  });
+
+  test("Bash の書き方の指示に、実測していない形（tee）を拒否されると断定して書かない", () => {
+    // 実測で拒否されたのは cat > ファイル だけ。tee は試していない
+    const prompt = String(buildAgentOptions(base).systemPrompt);
+    expect(prompt).toContain("cat >");
+    expect(prompt).not.toContain("tee");
+  });
 });

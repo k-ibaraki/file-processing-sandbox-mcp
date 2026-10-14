@@ -1,34 +1,35 @@
-// runJob が使う実際の部品（DynamoDB・S3・MicroVM の終了・Agent SDK）。
+// runJob が使う実際の部品（DynamoDB・S3・MicroVM の終了・前処理の道具・Agent SDK）。
 
-import { mkdir, writeFile } from "node:fs/promises";
-import { basename, join } from "node:path";
+import { rm } from "node:fs/promises";
+import { join } from "node:path";
 import { query } from "@anthropic-ai/claude-agent-sdk";
-import {
-  ConditionalCheckFailedException,
-  DynamoDBClient,
-  GetItemCommand,
-  UpdateItemCommand,
-} from "@aws-sdk/client-dynamodb";
+import { DynamoDBClient } from "@aws-sdk/client-dynamodb";
 import {
   LambdaMicrovmsClient,
   TerminateMicrovmCommand,
 } from "@aws-sdk/client-lambda-microvms";
-import {
-  GetObjectCommand,
-  PutObjectCommand,
-  paginateListObjectsV2,
-  S3Client,
-} from "@aws-sdk/client-s3";
+import { S3Client } from "@aws-sdk/client-s3";
 import { buildAgentOptions } from "./agent-options";
-import { summarizeRun } from "./agent-run";
+import { progressFromMessage, summarizeRun } from "./agent-run";
 import type { JobDeps } from "./job";
+import { createJobStorage } from "./job-storage";
+import { createJobTable } from "./job-table";
+import { preprocessAll } from "./preprocess";
+import { createRunCommand } from "./run-command";
 
 export interface WorkerConfig {
   region: string;
   tableName: string;
   bucketName: string;
   bedrockRoleArn: string;
+  /** エージェントの作業ディレクトリ。前処理の結果は extracted に置く */
   workDir: string;
+  /** 元のファイルを置く場所。エージェントの作業ディレクトリの外にし、前処理の後に消す（決定23） */
+  inputDir: string;
+  /** 前処理の一時ファイルの置き場所 */
+  tmpDir: string;
+  /** エージェントが Bash で使う Python（pandas・DuckDB 入り）の bin。PATH の先頭に置く */
+  pythonBinDir: string;
   maxTurns: number;
   credentialExportCommand: string;
   /** Bedrock 専用ロールの一時認証情報の有効秒数。ロールの切り替えでは最長 1 時間 */
@@ -49,92 +50,54 @@ export function readConfig(env: NodeJS.ProcessEnv): WorkerConfig {
     bucketName: readEnv(env, "JOBS_BUCKET_NAME"),
     bedrockRoleArn: readEnv(env, "BEDROCK_ROLE_ARN"),
     workDir: "/work",
+    inputDir: "/data/input",
+    tmpDir: "/data/tmp",
+    pythonBinDir: "/opt/py/bin",
     maxTurns: 40,
     credentialExportCommand: "node /opt/worker/export-credentials.mjs",
     credentialSeconds: 3600,
   };
 }
 
-const jobPrefix = (jobId: string) => `jobs/${jobId}/`;
-
 export function createDeps(config: WorkerConfig): JobDeps {
-  const ddb = new DynamoDBClient({ region: config.region });
-  const s3 = new S3Client({ region: config.region });
+  const table = createJobTable(
+    new DynamoDBClient({ region: config.region }),
+    config.tableName,
+  );
+  const storage = createJobStorage(
+    new S3Client({ region: config.region }),
+    config.bucketName,
+  );
   const microvms = new LambdaMicrovmsClient({ region: config.region });
-  const key = { job_id: { S: "" } };
+  const extractedDir = join(config.workDir, "extracted");
 
   return {
-    async getJob(jobId) {
-      const { Item } = await ddb.send(
-        new GetItemCommand({
-          TableName: config.tableName,
-          Key: { ...key, job_id: { S: jobId } },
-          ConsistentRead: true,
-        }),
-      );
-      return { status: Item?.status?.S, instruction: Item?.instruction?.S };
+    getJob: table.getJob,
+    setStatus: table.setStatus,
+    writeHeartbeat: table.writeHeartbeat,
+    hasExtracted: storage.hasExtracted,
+    downloadExtracted: (jobId) =>
+      storage.downloadExtracted(jobId, extractedDir),
+    downloadInputs: (jobId) => storage.downloadInputs(jobId, config.inputDir),
+    uploadExtracted: (jobId) => storage.uploadExtracted(jobId, extractedDir),
+    putAnswer: storage.putAnswer,
+    putReport: storage.putReport,
+
+    async preprocess(onProgress) {
+      return preprocessAll({
+        run: createRunCommand(),
+        inputDir: config.inputDir,
+        extractedDir,
+        tmpDir: config.tmpDir,
+        onProgress,
+      });
     },
 
-    async setStatus(jobId, status, error) {
-      // RUNNING のときだけ書く。終わったジョブや削除されたジョブを上書きしない
-      try {
-        await ddb.send(
-          new UpdateItemCommand({
-            TableName: config.tableName,
-            Key: { ...key, job_id: { S: jobId } },
-            UpdateExpression: error
-              ? "SET #s = :s, #e = :e, heartbeat_at = :t"
-              : "SET #s = :s, heartbeat_at = :t",
-            ConditionExpression: "#s = :running",
-            ExpressionAttributeNames: error
-              ? { "#s": "status", "#e": "error" }
-              : { "#s": "status" },
-            ExpressionAttributeValues: {
-              ":s": { S: status },
-              ":t": { N: String(Date.now()) },
-              ...(error ? { ":e": { S: error } } : {}),
-              ":running": { S: "RUNNING" },
-            },
-          }),
-        );
-      } catch (e) {
-        if (e instanceof ConditionalCheckFailedException) {
-          console.log(
-            JSON.stringify({ event: "status-skipped", jobId, status }),
-          );
-          return;
-        }
-        throw e;
-      }
+    async clearInputs() {
+      await rm(config.inputDir, { recursive: true, force: true });
     },
 
-    async downloadInputs(jobId) {
-      const dir = join(config.workDir, "input");
-      await mkdir(dir, { recursive: true });
-      const prefix = `${jobPrefix(jobId)}input/`;
-      // 1 回の一覧は 1,000 件までなので、最後のページまで回す
-      for await (const page of paginateListObjectsV2(
-        { client: s3 },
-        { Bucket: config.bucketName, Prefix: prefix },
-      )) {
-        for (const object of page.Contents ?? []) {
-          if (!object.Key || object.Key.endsWith("/")) continue;
-          const { Body } = await s3.send(
-            new GetObjectCommand({
-              Bucket: config.bucketName,
-              Key: object.Key,
-            }),
-          );
-          if (!Body) continue;
-          await writeFile(
-            join(dir, basename(object.Key)),
-            await Body.transformToByteArray(),
-          );
-        }
-      }
-    },
-
-    async runAgent(instruction, request) {
+    async runAgent(instruction, request, onProgress) {
       const options = buildAgentOptions({
         modelId: request.modelId,
         region: config.region,
@@ -143,7 +106,7 @@ export function createDeps(config: WorkerConfig): JobDeps {
         credentialExportCommand: config.credentialExportCommand,
         bedrockRoleArn: config.bedrockRoleArn,
         credentialSeconds: config.credentialSeconds,
-        path: process.env.PATH ?? "/usr/local/bin:/usr/bin:/bin",
+        path: `${config.pythonBinDir}:${process.env.PATH ?? "/usr/local/bin:/usr/bin:/bin"}`,
         home: process.env.HOME ?? "/root",
       });
       const stderr: string[] = [];
@@ -155,6 +118,9 @@ export function createDeps(config: WorkerConfig): JobDeps {
           options: { ...options, stderr: (data) => stderr.push(data) },
         })) {
           messages.push(message);
+          for (const text of progressFromMessage(message, extractedDir)) {
+            onProgress(text);
+          }
         }
         summary = summarizeRun(messages);
       } catch (error) {
@@ -164,28 +130,6 @@ export function createDeps(config: WorkerConfig): JobDeps {
         );
       }
       return summary;
-    },
-
-    async putAnswer(jobId, answer) {
-      await s3.send(
-        new PutObjectCommand({
-          Bucket: config.bucketName,
-          Key: `${jobPrefix(jobId)}answer.md`,
-          Body: answer,
-          ContentType: "text/markdown; charset=utf-8",
-        }),
-      );
-    },
-
-    async putReport(jobId, report) {
-      await s3.send(
-        new PutObjectCommand({
-          Bucket: config.bucketName,
-          Key: `${jobPrefix(jobId)}logs/report-${Date.now()}.json`,
-          Body: JSON.stringify(report, null, 2),
-          ContentType: "application/json",
-        }),
-      );
     },
 
     async terminate(microvmId) {
