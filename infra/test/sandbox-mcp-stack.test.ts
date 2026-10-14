@@ -192,12 +192,13 @@ describe("MicroVM のワーカー", () => {
     );
   });
 
-  test("実行ロールの S3 の一覧は jobs/ の下に限り、DynamoDB は表だけで GSI には届かない", () => {
+  test("実行ロールの S3 の読み書きは jobs/ の下に限り、DynamoDB は表だけで GSI には届かない", () => {
     const statements = policyStatements(/execution role/);
+    // 一覧に条件を付けない。S3 は無いキーの HeadObject に、条件なしの ListBucket があるときだけ 404 を返す
     const list = statements.find((s) =>
       [s.Action].flat().includes("s3:ListBucket"),
     );
-    expect(list?.Condition).toEqual({ StringLike: { "s3:prefix": "jobs/*" } });
+    expect(list?.Condition).toBeUndefined();
     const objects = statements.find((s) =>
       [s.Action].flat().includes("s3:GetObject"),
     );
