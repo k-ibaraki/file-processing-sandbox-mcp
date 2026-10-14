@@ -200,13 +200,20 @@ describe("MicroVM のワーカー", () => {
       [s.Action].flat().includes("s3:ListBucket"),
     );
     expect(list?.Condition).toBeUndefined();
-    const objects = statements.find((s) =>
-      [s.Action].flat().includes("s3:GetObject"),
+    // 操作を含む文をすべて見る。1 つだけ見ると、別の文で範囲を広げても気付けない
+    const having = (prefix: string) =>
+      statements.filter((s) =>
+        [s.Action].flat().some((a) => a.startsWith(prefix)),
+      );
+    const objectResources = having("s3:").flatMap((s) =>
+      [s.Action].flat().includes("s3:ListBucket") ? [] : [s.Resource].flat(),
     );
-    expect(JSON.stringify(objects?.Resource)).toContain("/jobs/*");
-    const table = statements.find((s) =>
-      [s.Action].flat().includes("dynamodb:GetItem"),
-    );
-    expect(JSON.stringify(table?.Resource)).not.toContain("/index/");
+    expect(objectResources.length).toBeGreaterThan(0);
+    for (const resource of objectResources) {
+      expect(JSON.stringify(resource)).toMatch(/"\/jobs\/\*"/);
+    }
+    for (const s of having("dynamodb:")) {
+      expect(JSON.stringify(s.Resource)).not.toContain("/index/");
+    }
   });
 });
