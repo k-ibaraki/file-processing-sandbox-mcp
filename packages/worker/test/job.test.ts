@@ -134,6 +134,17 @@ describe("runJob", () => {
     expect(d.setStatus).toHaveBeenLastCalledWith("01JOB", "SUCCEEDED");
   });
 
+  test("前処理の結果の保存に失敗したら、報告に保存したと残さない", async () => {
+    const d = deps({
+      uploadExtracted: vi.fn().mockRejectedValue(new Error("SlowDown")),
+    });
+    await runJob(d, request);
+    expect(d.putReport).toHaveBeenCalledWith(
+      "01JOB",
+      expect.objectContaining({ savedExtracted: false, error: "SlowDown" }),
+    );
+  });
+
   test("未対応の形式は、やり直しても結果が変わらないので、失敗に数えず結果を保存する", async () => {
     const d = deps({
       preprocess: vi.fn(async () => [

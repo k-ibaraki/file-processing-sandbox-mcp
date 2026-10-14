@@ -98,10 +98,11 @@ async function processJob(
     const complete = files.every(
       (f) => (!f.error || f.kind === "unsupported") && !f.incomplete,
     );
-    report.savedExtracted = complete;
+    report.savedExtracted = false;
     if (complete) {
       reporter.add("前処理の結果を保存中");
       await deps.uploadExtracted(jobId);
+      report.savedExtracted = true;
     }
   }
   await deps.clearInputs();
