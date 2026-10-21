@@ -1,5 +1,5 @@
 import { describe, expect, test } from "vitest";
-import { summarizeRun } from "../src/agent-run";
+import { progressFromMessage, summarizeRun } from "../src/agent-run";
 
 const init = {
   type: "system",
@@ -122,5 +122,43 @@ describe("summarizeRun", () => {
 
   test("結果が無ければ失敗にする", () => {
     expect(() => summarizeRun([init])).toThrow();
+  });
+});
+
+describe("progressFromMessage", () => {
+  const use = (name: string, input: Record<string, unknown>) => ({
+    type: "assistant",
+    message: { content: [{ type: "tool_use", id: "x", name, input }] },
+  });
+
+  test("Read は前処理の結果からの相対パスで、読んでいるものを示す", () => {
+    expect(
+      progressFromMessage(
+        use("Read", {
+          file_path: "/work/extracted/見積書.xlsx/sheets/明細.csv",
+        }),
+        "/work/extracted",
+      ),
+    ).toEqual(["見積書.xlsx/sheets/明細.csv を読み込み中"]);
+  });
+
+  test("Grep・Glob・Bash は何をしているかを短く示す", () => {
+    const messages = [
+      use("Grep", { pattern: "納期" }),
+      use("Glob", { pattern: "**/*.csv" }),
+      use("Bash", { command: "python -c 'x'", description: "金額を集計" }),
+      use("Bash", { command: "a".repeat(100) }),
+    ].flatMap((m) => progressFromMessage(m, "/work/extracted"));
+    expect(messages).toEqual([
+      "「納期」を検索中",
+      "ファイルを探索中: **/*.csv",
+      "コマンドを実行中: 金額を集計",
+      `コマンドを実行中: ${"a".repeat(60)}…`,
+    ]);
+  });
+
+  test("道具の呼び出しでないメッセージからは進捗を作らない", () => {
+    expect(progressFromMessage(init, "/work/extracted")).toEqual([]);
+    expect(progressFromMessage(toolResult, "/work/extracted")).toEqual([]);
   });
 });

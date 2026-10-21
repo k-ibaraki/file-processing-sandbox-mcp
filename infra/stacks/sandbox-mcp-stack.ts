@@ -1,5 +1,8 @@
+import * as dynamodb from "aws-cdk-lib/aws-dynamodb";
+import * as s3 from "aws-cdk-lib/aws-s3";
 import * as cdk from "aws-cdk-lib/core";
 import type { Construct } from "constructs";
+import { createWorker } from "./worker";
 
 /** デプロイパラメータ。infra/parameter.ts（parameter.sample.ts のコピー）で設定する */
 export interface SandboxMcpParameters {
@@ -14,13 +17,57 @@ export interface SandboxMcpStackProps extends cdk.StackProps {
 
 /**
  * S3・DynamoDB・前段 Lambda・掃除用 Lambda・MicroVM イメージをまとめるスタック。
- * いまは土台だけで、資源は実装の段階で足す。
+ * いまはジョブのバケットと表、MicroVM のワーカーまで。前段 Lambda と掃除用 Lambda は、コードをステップ 3 で作り、
+ * このスタックへはステップ 4 で足す（決定18）。
  */
 export function createSandboxMcpStack(
   scope: Construct,
   id: string,
   props: SandboxMcpStackProps,
 ): cdk.Stack {
-  const { parameters: _parameters, ...stackProps } = props;
-  return new cdk.Stack(scope, id, stackProps);
+  const { parameters, ...stackProps } = props;
+  const stack = new cdk.Stack(scope, id, stackProps);
+
+  // ファイルはそれぞれ作成から 1 日で消す（期限は次の UTC 0 時に切り上がる）。ジョブ表の項目は ttl でジョブの作成から 1 日を過ぎると消える
+  // （DynamoDB が消すまで数日かかることがある）。ジョブの作成より後に作ったファイル（実行で作る結果、後から置く入力）は
+  // 項目より長く残りうる
+  const bucket = new s3.Bucket(stack, "JobsBucket", {
+    blockPublicAccess: s3.BlockPublicAccess.BLOCK_ALL,
+    encryption: s3.BucketEncryption.S3_MANAGED,
+    enforceSSL: true,
+    lifecycleRules: [{ prefix: "jobs/", expiration: cdk.Duration.days(1) }],
+    removalPolicy: cdk.RemovalPolicy.DESTROY,
+    // ファイルは 1 日で消えるが、その間に cdk destroy しても失敗しないよう、スタックの削除時に中身も消す
+    autoDeleteObjects: true,
+  });
+
+  const table = new dynamodb.TableV2(stack, "JobsTable", {
+    partitionKey: { name: "job_id", type: dynamodb.AttributeType.STRING },
+    timeToLiveAttribute: "ttl",
+    // 利用者ごとのジョブ一覧と、実行中のジョブの数の判定に使う
+    globalSecondaryIndexes: [
+      {
+        indexName: "owner-created_at",
+        partitionKey: { name: "owner", type: dynamodb.AttributeType.STRING },
+        sortKey: { name: "created_at", type: dynamodb.AttributeType.NUMBER },
+      },
+    ],
+    removalPolicy: cdk.RemovalPolicy.DESTROY,
+  });
+
+  const worker = createWorker(stack, {
+    bucket,
+    table,
+    modelId: parameters.modelId,
+  });
+
+  new cdk.CfnOutput(stack, "BucketName", { value: bucket.bucketName });
+  new cdk.CfnOutput(stack, "TableName", { value: table.tableName });
+  new cdk.CfnOutput(stack, "WorkerImageArn", {
+    value: worker.image.attrImageArn,
+  });
+  new cdk.CfnOutput(stack, "WorkerExecutionRoleArn", {
+    value: worker.executionRole.roleArn,
+  });
+  return stack;
 }

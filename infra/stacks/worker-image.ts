@@ -46,9 +46,10 @@ export function bundleWorkerImage(outputDir: string): void {
     target: "node24",
     format: "esm",
     external: [AGENT_SDK],
-    // AWS SDK の一部は CommonJS の require を使うため、ESM の中で require を使えるようにする
+    // AWS SDK の一部は CommonJS の require を使うため、ESM の中で require を使えるようにする。
+    // 取り込んだ依存が自分で createRequire を import することがあるので、名前がぶつからない別名で import する
     banner: {
-      js: "import { createRequire } from 'node:module'; const require = createRequire(import.meta.url);",
+      js: "import { createRequire as __bannerCreateRequire } from 'node:module'; const require = __bannerCreateRequire(import.meta.url);",
     },
     logLevel: "warning",
   });

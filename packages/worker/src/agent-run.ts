@@ -29,6 +29,59 @@ function toText(content: unknown): string {
   return "";
 }
 
+/** 進捗に載せるコマンドや検索語の長さ */
+const MAX_PROGRESS_DETAIL = 60;
+
+function shorten(text: string): string {
+  return text.length > MAX_PROGRESS_DETAIL
+    ? `${text.slice(0, MAX_PROGRESS_DETAIL)}…`
+    : text;
+}
+
+function describeToolUse(
+  name: string,
+  input: Record<string, unknown>,
+  extractedDir: string,
+): string {
+  const value = (key: string) =>
+    typeof input[key] === "string" ? (input[key] as string) : "";
+  switch (name) {
+    case "Read": {
+      const path = value("file_path");
+      const rel = path.startsWith(`${extractedDir}/`)
+        ? path.slice(extractedDir.length + 1)
+        : path;
+      return `${rel} を読み込み中`;
+    }
+    case "Grep":
+      return `「${shorten(value("pattern"))}」を検索中`;
+    case "Glob":
+      return `ファイルを探索中: ${shorten(value("pattern"))}`;
+    case "Bash":
+      return `コマンドを実行中: ${shorten(value("description") || value("command"))}`;
+    default:
+      return `${name} を実行中`;
+  }
+}
+
+/** エージェントの道具の呼び出しから、進捗の文言を機械的に作る。進捗のために LLM は呼ばない */
+export function progressFromMessage(
+  raw: unknown,
+  extractedDir: string,
+): string[] {
+  const message = raw as Message;
+  if (message.type !== "assistant") return [];
+  return contentBlocks(message)
+    .filter((block) => block.type === "tool_use")
+    .map((block) =>
+      describeToolUse(
+        String(block.name),
+        (block.input ?? {}) as Record<string, unknown>,
+        extractedDir,
+      ),
+    );
+}
+
 export function summarizeRun(messages: readonly unknown[]): {
   answer: string;
   report: Record<string, unknown>;
