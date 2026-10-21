@@ -3,7 +3,7 @@
 // それらを残すために、PDF を経由せず直接読む（決定19）。
 
 import { XMLParser } from "fast-xml-parser";
-import { unzipSync } from "fflate";
+import { type UnzipOptions, type Unzipped, unzipSync } from "fflate";
 
 /** 1 つの部品を展開するときの上限。圧縮率の高い細工されたファイルでメモリを使い切らないようにする */
 const MAX_PART_BYTES = 256 * 1024 * 1024;
@@ -66,9 +66,26 @@ function first(nodes: XmlNode[], name: string): XmlNode | undefined {
 
 type Parts = Record<string, string>;
 
+/** fflate の英語のエラー（invalid zip data など）を、利用者に伝わる理由にする。上限を越えたときの自前のエラーはそのまま投げる */
+function unzip(data: Uint8Array, opts: UnzipOptions): Unzipped {
+  try {
+    return unzipSync(data, opts);
+  } catch (error) {
+    if (
+      error instanceof Error &&
+      typeof (error as { code?: unknown }).code === "number"
+    ) {
+      throw new Error(
+        `zip として読めません。ファイルが壊れているか、拡張子と中身の形式が違う可能性があります（${error.message}）`,
+      );
+    }
+    throw error;
+  }
+}
+
 function readParts(data: Uint8Array, wanted: (name: string) => boolean): Parts {
   let total = 0;
-  const files = unzipSync(data, {
+  const files = unzip(data, {
     filter: (file) => {
       if (!wanted(file.name)) return false;
       // 展開するときに確保しうる大きさの上限。fflate は無圧縮の部品を、展開後のサイズの申告を見ずに、申告された圧縮後のサイズの分

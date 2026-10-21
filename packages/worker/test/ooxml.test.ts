@@ -25,6 +25,15 @@ function docx(body: string, extra: Record<string, string> = {}): Uint8Array {
 const run = (text: string) =>
   `<w:r><w:t xml:space="preserve">${text}</w:t></w:r>`;
 
+describe("zip として読めないファイル", () => {
+  test("fflate の英語のエラーではなく、利用者に伝わる理由にする", () => {
+    // 実測（V2）で、回答に「invalid zip data」がそのまま出た
+    expect(() => extractDocx(strToU8("zip ではない"))).toThrow(
+      "zip として読めません",
+    );
+  });
+});
+
 describe("extractDocx", () => {
   test("段落を行として取り出す", () => {
     const text = extractDocx(

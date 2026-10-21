@@ -327,6 +327,7 @@ describe("runJob", () => {
         timingsMs: {
           inputs: expect.any(Number),
           preprocess: expect.any(Number),
+          upload: expect.any(Number),
           agent: expect.any(Number),
         },
         agent: { numTurns: 2 },

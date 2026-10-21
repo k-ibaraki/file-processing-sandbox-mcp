@@ -84,12 +84,14 @@ describe("formatExif", () => {
 function fakeRun(
   calls: string[][],
   csvNames: string[],
-  /** 失敗させるコマンド（タイムアウトなどを模す） */
+  /** 失敗させるコマンド名か引数（タイムアウトなどを模す）。引数で指定すると、同じコマンドの一部の呼び出しだけを失敗させられる */
   failing: string[] = [],
 ): RunCommand {
   return async (command, args) => {
     calls.push([command, ...args]);
-    if (failing.includes(command)) throw new Error(`${command} が失敗しました`);
+    if (failing.some((f) => f === command || args.includes(f))) {
+      throw new Error(`${command} が失敗しました`);
+    }
     const last = args.at(-1) ?? "";
     switch (command) {
       case "soffice": {
@@ -253,6 +255,26 @@ describe("preprocessAll", () => {
     expect(
       await readFile(join(extractedDir, "写真.heic/metadata.txt"), "utf8"),
     ).toBe("元の大きさ: 4000x3000\nDateTime: 2026:10:01 15:30:00\n");
+  });
+
+  test("EXIF を読めなかったときは、注意を残し、一部を作れなかった印を付ける", async () => {
+    // EXIF が無いだけなら identify は失敗しない（AL2023 の ImageMagick 6.9.13 で確認）。失敗は読めなかったときだけなので、
+    // 一時的な失敗を使い回さないよう、結果を保存しない側に入れる（決定28）
+    const { summaries, extractedDir } = await setup(
+      { "写真.jpg": "jpg" },
+      [],
+      ["%[EXIF:*]"],
+    );
+    expect(summaries[0]?.error).toBeUndefined();
+    expect(summaries[0]?.incomplete).toBe(true);
+    expect(summaries[0]?.warnings).toEqual([
+      expect.stringContaining("メタデータを読めません"),
+    ]);
+    expect(
+      await readFile(join(extractedDir, "写真.jpg/metadata.txt"), "utf8"),
+    ).toBe("元の大きさ: 4000x3000\n");
+    const succeeded = await setup({ "写真.jpg": "jpg" });
+    expect(succeeded.summaries[0]?.incomplete).toBeUndefined();
   });
 
   test("画像は拡張子で形式を固定し、元のファイル名ではなく決まった名前で ImageMagick に渡す", async () => {

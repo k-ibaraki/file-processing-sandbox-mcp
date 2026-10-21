@@ -110,6 +110,13 @@ describe("buildAgentOptions", () => {
     expect(prompt).toContain("ファイルへの書き出し");
   });
 
+  test("回答の根拠は、作業用のパスではなく元のファイル名で示させる", () => {
+    // 実測（V1・V2）で、根拠に「売上明細.csv/売上明細.csv」や /work/extracted/index.md と書いた。利用者には意味が分からない
+    const prompt = String(buildAgentOptions(base).systemPrompt);
+    expect(prompt).toContain("元のファイル名");
+    expect(prompt).toContain("/work/extracted の下の作業用のパス");
+  });
+
   test("前処理に失敗したファイルは読めていないことを、回答で伝えさせる", () => {
     // 前処理に失敗してもジョブは失敗にしないので、利用者が知る手段は回答だけ（決定28）
     const prompt = String(buildAgentOptions(base).systemPrompt);
