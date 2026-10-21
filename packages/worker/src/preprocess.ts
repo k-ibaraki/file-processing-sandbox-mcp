@@ -420,10 +420,18 @@ async function processImage(
   const size = (
     await ctx.run("identify", ["-ping", "-format", "%wx%h", `${ref}[0]`])
   ).trim();
+  // EXIF が無いだけなら identify は失敗せず空を返す（AL2023 の ImageMagick 6.9.13 で確認）。失敗は読めなかったときだけなので、
+  // 注意を残し、一時的な失敗を使い回さないよう一部を作れなかった印を付ける（決定28）
   const exif = formatExif(
     await ctx
       .run("identify", ["-ping", "-format", "%[EXIF:*]", `${ref}[0]`])
-      .catch(() => ""),
+      .catch((error) => {
+        ctx.summary.warnings.push(
+          `撮影日時などのメタデータを読めません: ${message(error)}`,
+        );
+        ctx.summary.incomplete = true;
+        return "";
+      }),
   );
   await writeFile(
     join(ctx.out, "metadata.txt"),
