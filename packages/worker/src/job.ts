@@ -101,7 +101,7 @@ async function processJob(
     report.savedExtracted = false;
     if (complete) {
       reporter.add("前処理の結果を保存中");
-      await deps.uploadExtracted(jobId);
+      await timed(timings, "upload", () => deps.uploadExtracted(jobId));
       report.savedExtracted = true;
     }
   }
